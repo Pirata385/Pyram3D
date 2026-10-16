@@ -61,12 +61,13 @@ def head(spec: BodySpec):
     cy = 1.652
     parts = [
         skin(sdf.ellipsoid(_p(spec, 0, cy, -0.012), (0.087 * hs, 0.1 * hs, 0.099 * hs))),  # cranium
-        skin(sdf.round_cone(_p(spec, 0, 1.618, 0.018), _p(spec, 0, 1.548, 0.06),
-                            (0.074 if not f else 0.07) * hs, (0.03 if not f else 0.024) * hs)),  # jaw
-        skin(sdf.sphere(_p(spec, 0, 1.546, 0.07), (0.026 if not f else 0.021) * hs)),  # chin
+        skin(sdf.round_cone(_p(spec, 0, 1.618, 0.018), _p(spec, 0, 1.552 if f else 1.548, 0.058 if f else 0.06),
+                            (0.074 if not f else 0.063) * hs, (0.03 if not f else 0.02) * hs)),  # jaw (f: ~85%)
+        skin(sdf.sphere(_p(spec, 0, 1.55 if f else 1.546, 0.066 if f else 0.07), (0.026 if not f else 0.017) * hs)),  # chin
         skin(sdf.ellipsoid(_p(spec, 0.046, 1.598, 0.056), (0.03, 0.024, 0.026))).mirror_x(),  # cheekbones
-        skin(sdf.round_cone(_p(spec, 0, 1.648, 0.09), _p(spec, 0, 1.598, 0.114), 0.011, 0.017 if not f else 0.015)),  # nose
-        skin(sdf.ellipsoid(_p(spec, 0, 1.6, 0.104), (0.02, 0.011, 0.012))),  # nostrils
+        skin(sdf.round_cone(_p(spec, 0, 1.646 if f else 1.648, 0.09), _p(spec, 0, 1.605 if f else 1.598, 0.108 if f else 0.114),
+                            0.009 if f else 0.011, 0.011 if f else 0.017)),  # nose (f: ~30% smaller)
+        skin(sdf.ellipsoid(_p(spec, 0, 1.604 if f else 1.6, 0.1 if f else 0.104), (0.015, 0.009, 0.01) if f else (0.02, 0.011, 0.012))),  # nostrils
         skin(sdf.capsule(_p(spec, -0.044, 1.66, 0.083), _p(spec, 0.044, 1.66, 0.083), 0.014 if not f else 0.011)),  # brow
     ]
     if spec.harpin:  # long pointed ears

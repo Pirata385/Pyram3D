@@ -154,7 +154,11 @@ def style_sdf(spec: BodySpec, style: str):
         parts += temple_tufts(spec, 0.8)
     elif style == "plumado":
         parts = [cap(spec, 0.024)] + bangs(spec, 3, 0.05, 0.06)
-        parts.append(hair(sdf.round_cone(_p(spec, 0, 1.64, -0.075), _p(spec, 0, 1.33, -0.115), 0.112, 0.07)))
+        # back: 4 locks with separate pointed tips (not one flat plate)
+        for k, x in enumerate((-0.07, -0.024, 0.024, 0.07)):
+            a = _p(spec, x * 0.7, 1.64, -0.08)
+            b = _p(spec, x * 1.45, 1.33 + 0.03 * (k % 2), -0.125)
+            parts.append(hair(sdf.round_cone(tuple(a), tuple(b), 0.05, 0.008), 0.9 + 0.1 * (k % 2)))
         for sgn in (1, -1):
             a = _p(spec, 0.06 * sgn, 1.62, -0.1)
             parts.append(plume(sdf.round_cone(tuple(a), tuple(a + np.array([0.03 * sgn, -0.3, -0.04])), 0.022, 0.004), 0.95))

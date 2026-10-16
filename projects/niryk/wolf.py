@@ -125,33 +125,34 @@ def _spikes(base, direction, n, length, radius, spread, color, seed=0, shade=1.0
 def wolf_sdf():
     parts = []
     # torso: heavy chest and shoulders, tucked waist, lean haunches (Hades-like wedge silhouette)
-    parts.append(fur(sdf.ellipsoid((0, 0.8, 0.17), (0.165, 0.215, 0.23)), FLANK))  # chest
+    parts.append(fur(sdf.ellipsoid((0, 0.77, 0.17), (0.175, 0.265, 0.27)), FLANK))  # deep chest
     parts.append(fur(sdf.ellipsoid((0, 0.87, 0.12), (0.14, 0.09, 0.17)), SADDLE, 1.05))  # shoulder hump
     parts.append(fur(sdf.ellipsoid((0, 0.76, -0.12), (0.11, 0.12, 0.25)), FLANK))  # waist
     parts.append(fur(sdf.ellipsoid((0, 0.75, -0.42), (0.125, 0.14, 0.16)), FLANK))  # haunches
-    parts.append(fur(sdf.ellipsoid((0, 0.85, -0.1), (0.085, 0.06, 0.38)), SADDLE))  # dark saddle along the back
+    parts.append(fur(sdf.ellipsoid((0, 0.85, -0.1), (0.105, 0.07, 0.4)), SADDLE))  # dark saddle (reads from above)
     parts.append(fur(sdf.ellipsoid((0, 0.65, 0.22), (0.12, 0.17, 0.15)), PALE))  # chest ruff
     parts.append(fur(sdf.ellipsoid((0, 0.66, -0.12), (0.075, 0.055, 0.2)), PALE, 0.95))  # belly
     # neck and an angular mane swept back over the shoulders
-    parts.append(fur(sdf.round_cone((0, 0.82, 0.28), (0, 0.94, 0.48), 0.15, 0.105), FLANK))
-    parts.append(fur(sdf.ellipsoid((0, 0.91, 0.36), (0.14, 0.12, 0.11)), SADDLE, 1.1))  # mane
-    parts += _spikes((0, 0.95, 0.4), (0, 0.35, -1), 9, 0.17, 0.035, (0.09, 0.04, 0.05), SADDLE, seed=1, shade=1.05)
-    parts += [p.mirror_x() for p in _spikes((0.11, 0.88, 0.38), (0.3, 0.15, -1), 4, 0.13, 0.03, (0.02, 0.05, 0.04), FLANK, seed=2)]
+    parts.append(fur(sdf.round_cone((0, 0.82, 0.28), (0, 0.94, 0.48), 0.17, 0.115), FLANK))
+    parts.append(fur(sdf.ellipsoid((0, 0.92, 0.35), (0.175, 0.15, 0.14)), SADDLE, 1.1))  # heavy mane
+    parts += _spikes((0, 0.97, 0.4), (0, 0.35, -1), 10, 0.21, 0.045, (0.11, 0.05, 0.06), SADDLE, seed=1, shade=1.05)
+    parts += _spikes((0, 0.93, 0.18), (0, 0.4, -1), 6, 0.17, 0.04, (0.1, 0.03, 0.05), SADDLE, seed=7, shade=1.0)  # over the shoulder blades
+    parts += [p.mirror_x() for p in _spikes((0.13, 0.88, 0.38), (0.35, 0.1, -1), 5, 0.16, 0.04, (0.02, 0.06, 0.05), FLANK, seed=2)]
     parts += _spikes((0, 0.6, 0.3), (0, -0.35, 0.6), 4, 0.07, 0.028, (0.06, 0.02, 0.02), PALE, seed=3)  # short chest tuft
     # head: bigger wedge skull, strong brow, long snout
-    parts.append(fur(sdf.ellipsoid((0, 0.975, 0.58), (0.095, 0.085, 0.11)), FLANK))  # skull
-    parts.append(fur(sdf.ellipsoid((0, 1.01, 0.6), (0.075, 0.035, 0.07)), SADDLE, 1.15))  # brow / forehead
-    parts += [p.mirror_x() for p in _spikes((0.075, 0.93, 0.57), (0.7, -0.2, -0.6), 3, 0.09, 0.028, (0.01, 0.02, 0.02), PALE, seed=4)]  # cheek ruff
-    parts.append(fur(sdf.round_cone((0, 0.955, 0.63), (0, 0.925, 0.83), 0.056, 0.03), FLANK, 1.05))  # snout top
-    parts.append(fur(sdf.round_cone((0, 0.9, 0.63), (0, 0.885, 0.8), 0.046, 0.024), PALE))  # muzzle / jaw
-    parts.append(sdf.sphere((0, 0.942, 0.845), 0.022).paint(color=(1, 1, 1), material=DARK))  # nose
+    parts.append(fur(sdf.ellipsoid((0, 0.975, 0.58), (0.11, 0.1, 0.12)), FLANK))  # skull (+20%)
+    parts.append(fur(sdf.ellipsoid((0, 1.03, 0.58), (0.08, 0.035, 0.07)), SADDLE, 1.15))  # forehead
+    parts += [p.mirror_x() for p in _spikes((0.09, 0.93, 0.57), (0.7, -0.2, -0.6), 3, 0.1, 0.032, (0.01, 0.02, 0.02), PALE, seed=4)]  # cheek ruff
+    parts.append(fur(sdf.round_cone((0, 0.965, 0.64), (0, 0.935, 0.85), 0.066, 0.036), FLANK, 1.05))  # tall snout
+    parts.append(fur(sdf.round_cone((0, 0.9, 0.64), (0, 0.89, 0.82), 0.055, 0.03), PALE))  # muzzle / jaw
+    parts.append(sdf.sphere((0, 0.952, 0.87), 0.025).paint(color=(1, 1, 1), material=DARK))  # nose
     # ears: tall triangles
-    ear = sdf.round_cone((0.055, 1.03, 0.56), (0.088, 1.18, 0.52), 0.04, 0.006)
+    ear = sdf.round_cone((0.065, 1.05, 0.55), (0.1, 1.2, 0.51), 0.042, 0.006)
     parts.append(fur(ear, SADDLE).mirror_x())
     # legs: muscular tops, gray shanks, pale only at the paws
     for (a, b, r1, r2, c) in [
-        ((0.13, 0.76, 0.26), (0.14, 0.45, 0.2), 0.082, 0.046, FLANK),
-        ((0.14, 0.45, 0.2), (0.13, 0.13, 0.25), 0.04, 0.03, FLANK),
+        ((0.13, 0.76, 0.26), (0.14, 0.45, 0.2), 0.1, 0.06, FLANK),  # heavy forearms (+30%)
+        ((0.14, 0.45, 0.2), (0.13, 0.13, 0.25), 0.052, 0.038, FLANK),
         ((0.13, 0.13, 0.25), (0.13, 0.035, 0.33), 0.034, 0.032, PALE),
         ((0.12, 0.73, -0.42), (0.13, 0.46, -0.32), 0.095, 0.054, FLANK),
         ((0.13, 0.46, -0.32), (0.13, 0.21, -0.5), 0.045, 0.032, FLANK),
@@ -162,26 +163,26 @@ def wolf_sdf():
     # elbow and heel tufts
     parts += [p.mirror_x() for p in _spikes((0.15, 0.47, 0.17), (0, -0.4, -1), 2, 0.07, 0.022, (0.01, 0.01, 0.01), FLANK, seed=5)]
     # tail: bushy, angular tufts, dark tip
-    tail = sdf.chain(TAIL, [0.05, 0.08, 0.085, 0.072, 0.03], k=0.04)
+    tail = sdf.chain(TAIL, [0.06, 0.095, 0.1, 0.085, 0.035], k=0.04)
     parts.append(fur(tail, FLANK))
     parts += _spikes(TAIL[2], (0, -0.3, -1), 6, 0.12, 0.03, (0.05, 0.08, 0.06), FLANK, seed=6)
     parts.append(fur(sdf.round_cone(TAIL[-2], (0, 0.3, -1.03), 0.05, 0.006), SADDLE, 0.8))
-    body = sdf.smooth_union(*parts, k=0.03).displace(**_clumps(0.006, 10, 3))
+    body = sdf.smooth_union(*parts, k=0.03).displace(**_clumps(0.003, 10, 3))  # clean zones, little noise
     # mouth opening line (the jaw bone opens it)
-    body = body.smooth_subtract(sdf.ellipsoid((0.0, 0.905, 0.76), (0.048, 0.006, 0.08)).paint(material=MOUTH, color=(1, 1, 1)), 0.004)
+    body = body.smooth_subtract(sdf.ellipsoid((0.0, 0.912, 0.78), (0.055, 0.007, 0.09)).paint(material=MOUTH, color=(1, 1, 1)), 0.004)
     return body
 
 
 def eyes_mesh():
     parts = []
     for sx in (1, -1):
-        e = p3.uv_sphere(0.02, 10, 6).scale((1, 0.62, 1)).rotate((0, sx * 35, 0)).translate((sx * 0.058, 0.99, 0.665))
+        e = p3.uv_sphere(0.022, 10, 6).scale((1, 0.62, 1)).rotate((0, sx * 35, 0)).translate((sx * 0.066, 1.0, 0.672))
         parts.append(e.set_material(EYE))
-        pupil = p3.uv_sphere(0.008, 6, 4).scale((0.5, 1, 0.5)).translate((sx * 0.069, 0.99, 0.68))
+        pupil = p3.uv_sphere(0.008, 6, 4).scale((0.5, 1, 0.5)).translate((sx * 0.078, 1.0, 0.688))
         parts.append(pupil.set_material(DARK))
     teeth = []
     for sx in (1, -1):  # fangs, visible when biting
-        teeth.append(p3.cone(0.007, 0.03, 6).rotate((180, 0, 0)).translate((sx * 0.025, 0.905, 0.78)).set_material(TEETH))
+        teeth.append(p3.cone(0.008, 0.034, 6).rotate((180, 0, 0)).translate((sx * 0.028, 0.912, 0.8)).set_material(TEETH))
     return p3.Mesh.join(parts, name="WolfEyes"), p3.Mesh.join(teeth, name="WolfFangs")
 
 
@@ -255,15 +256,18 @@ def sample(sk, legs, clip, t):
             head = [3 * math.sin(ph * tp * 2), 0]
         gait = ("move", (phases, stance, lift, S))
     elif clip == "Attack":
-        crouch = A.smooth(t / 0.25) * (1 - A.smooth((t - 0.32) / 0.08))
-        lunge = A.smooth((t - 0.25) / 0.17) * (1 - A.smooth((t - 0.48) / 0.27))
-        off = np.array([0, -0.12 * crouch + 0.04 * lunge, 0.55 * lunge])
-        spine_pitch = 8 * crouch - 6 * lunge
-        head = [-14 * crouch + 18 * lunge, 0]
-        jaw = 32 * A.smooth((t - 0.26) / 0.12) * (1 - A.smooth((t - ATTACK_HIT) / 0.06))
-        ears = -25 * max(crouch, lunge)
-        tail_lift = -10 * crouch
-        gait = ("lunge", (crouch, lunge))
+        # warning (0-0.3 s): crouched, head low, ears flat; bote (0.3-0.45): airborne ~1.2 m
+        # forward, front paws off the ground, jaw open ~35 deg at the bite; recovery after
+        crouch = A.smooth(t / 0.2) * (1 - A.smooth((t - 0.3) / 0.06))
+        lunge = A.smooth((t - 0.3) / 0.13) * (1 - A.smooth((t - 0.5) / 0.25))
+        air = math.sin(math.pi * min(1.0, max(0.0, (t - 0.3) / 0.2)))
+        off = np.array([0, -0.14 * crouch + 0.14 * air, 1.2 * lunge])
+        spine_pitch = 10 * crouch - 12 * air
+        head = [-22 * crouch + 20 * lunge, 0]
+        jaw = 35 * A.smooth((t - 0.32) / 0.08) * (1 - A.smooth((t - ATTACK_HIT - 0.02) / 0.06))
+        ears = -32 * max(crouch, lunge)
+        tail_lift = -14 * crouch + 8 * air
+        gait = ("lunge", (crouch, lunge, air))
     elif clip == "Hit":
         k = math.sin(math.pi * min(1.0, ph))
         off = np.array([0, -0.03 * k, -0.12 * k])
@@ -271,14 +275,15 @@ def sample(sk, legs, clip, t):
         ears = -25 * k
         gait = ("stand", None)
     elif clip == "Death":
-        f = A.smooth(ph / 0.75)
-        off = np.array([0.0, -0.5 * f, -0.05 * f])
+        f = A.smooth(ph / 0.7)
+        off = np.array([0.12 * f, -0.53 * f, -0.05 * f])
         gait = ("dead", f)
-        head = [10 * f, 20 * f]
-        jaw = 12 * f
-        tail_amp = 0
+        head = [28 * f, 25 * f]  # head down to the ground
+        jaw = 14 * f
+        ears = -20 * f
+        tail_amp, tail_lift = 0, 6 * f
     hips_pitch = spine_pitch * 0.4
-    P["Hips"] = A.qm(A.qz(80 * gait[1]) if gait[0] == "dead" else A.I, A.qx(hips_pitch))
+    P["Hips"] = A.qm(A.qz(88 * gait[1]) if gait[0] == "dead" else A.I, A.qx(hips_pitch))
     P["Spine1"] = A.qx(-spine_pitch * 0.4)
     P["Spine2"] = A.qx(-spine_pitch * 0.4)
     P["Neck"] = A.qm(A.qy(head[1] * 0.4), A.qx(-head[0] * 0.5 + spine_pitch * 0.4))
@@ -311,12 +316,15 @@ def sample(sk, legs, clip, t):
                 pa = leg.a3 + math.radians(40 if is_front else -10) * math.sin(math.pi * s)
             target = (rest_paw[0], rest_paw[1] + fy, rest_paw[2] + fz)
         elif gait[0] == "lunge":
-            crouch, lunge = gait[1]
-            reach = 0.32 * lunge if is_front else 0.18 * lunge
-            target = (rest_paw[0], rest_paw[1] + (0.12 * lunge if is_front else 0.0), rest_paw[2] + reach + 0.55 * lunge * (0 if is_front else 0.85))
+            crouch, lunge, air = gait[1]
+            if is_front:  # reaching forward, off the ground
+                target = (rest_paw[0], rest_paw[1] + 0.26 * air, rest_paw[2] + 1.2 * lunge + 0.28 * air)
+            else:  # push off, trailing behind, then landing under the body
+                target = (rest_paw[0], rest_paw[1] + 0.05 * air, rest_paw[2] + 1.2 * lunge - 0.3 * air)
         elif gait[0] == "dead":
             f = gait[1]
-            r = [(-25 if is_front else 20) * f, (30 if is_front else -25) * f, 10 * f, 0]
+            side = 1.0 if "Left" in name else 0.7  # limp, bent, not mirrored
+            r = [(-45 if is_front else 50) * f * side, (75 if is_front else -65) * f, (35 if is_front else 40) * f, 10 * f]
             for nm, v in zip(leg.names, r):
                 P[nm] = A.qx(v)
             continue

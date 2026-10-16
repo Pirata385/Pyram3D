@@ -120,9 +120,10 @@ def joints(spec: BodySpec) -> dict[str, tuple]:
         J.update({
             # folded on the back (~30 deg off the back plane): wrist a little above the head,
             # primaries reaching down behind the legs to ~0.12 m above the ground
-            "LeftWing1": ((0.075, 1.37 * s, -0.12), (0.22, 1.63 * s, -0.2)),
-            "LeftWing2": ((0.22, 1.63 * s, -0.2), (0.31, 1.81 * s, -0.25)),
-            "LeftWing3": ((0.31, 1.81 * s, -0.25), (0.2, 0.12, -0.44)),
+            # wrist (carpal angle) beside and behind the head, clear of it
+            "LeftWing1": ((0.075, 1.37 * s, -0.12), (0.27, 1.6 * s, -0.22)),
+            "LeftWing2": ((0.27, 1.6 * s, -0.22), (0.37, 1.84 * s, -0.31)),
+            "LeftWing3": ((0.37, 1.84 * s, -0.31), (0.2, 0.12, -0.46)),
         })
     return {k: (np.array(a, float), np.array(b, float)) for k, (a, b) in J.items()}
 
@@ -133,10 +134,10 @@ def mirror(p):
     return p
 
 
-# Harpin tail: an S from the coccyx down to the ground behind the heels, the brush curling up
-# (~1.15 m along the curve). y is scaled by the body height, z by it too.
-TAIL_POINTS = [(0, 0.93, -0.11), (0, 0.8, -0.23), (0, 0.6, -0.31), (0, 0.4, -0.38), (0, 0.2, -0.47),
-               (0, 0.12, -0.64), (0, 0.2, -0.82)]
+# Harpin tail: an S from the coccyx (under the tunic hem) down behind the legs, the brush held
+# ~0.4 m above the ground and curling up (~1.1 m along the curve). y and z scale with the body.
+TAIL_POINTS = [(0, 0.93, -0.11), (0, 0.78, -0.22), (0, 0.6, -0.31), (0, 0.46, -0.44), (0, 0.4, -0.62),
+               (0, 0.44, -0.8), (0, 0.56, -0.93)]  # lowest point ~0.4 m: the brush never drags
 
 
 def tail_points(spec: BodySpec):

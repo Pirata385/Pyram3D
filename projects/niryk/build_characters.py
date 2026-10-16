@@ -25,6 +25,7 @@ from common import REVIEW, SPECS, build_skeleton, export_glb, side_filter, slot,
 import pyram3d as p3
 
 FAST = "--fast" in sys.argv
+ARMOR_ONLY = "--armor-only" in sys.argv
 CELL = 0.024 if FAST else 0.0145
 
 
@@ -58,7 +59,7 @@ def paint_face(mesh: p3.Mesh, spec):
     s = spec.s
     P = mesh.vertices
     lips = (np.abs(P[:, 0]) < 0.022) & (np.abs(P[:, 1] - 1.565 * s) < 0.008) & (P[:, 2] > 0.07)
-    mesh.colors[lips, :3] *= np.array([0.86, 0.68, 0.66])
+    mesh.colors[lips, :3] *= np.array([0.86, 0.68, 0.66]) if spec.gender == "m" else np.array([0.76, 0.52, 0.54])
     cheek = (np.abs(np.abs(P[:, 0]) - 0.05) < 0.016) & (np.abs(P[:, 1] - 1.6 * s) < 0.014) & (P[:, 2] > 0.05)
     mesh.colors[cheek, :3] *= np.array([1.0, 0.9, 0.88])
 
@@ -68,11 +69,12 @@ def paint_face(mesh: p3.Mesh, spec):
 def eyes(spec):
     s = spec.s
     parts = []
+    big = 1.1 if spec.gender == "f" else 1.0  # slightly larger eyes on the female faces
     for sgn in (1, -1):
         c = np.array([0.036 * sgn, 1.637 * s, 0.079])
-        white = p3.uv_sphere(0.0175, 10, 6).translate(c).set_material(slot("EyeWhite"))
-        iris = p3.uv_sphere(0.0105, 8, 4).scale((1, 1, 0.45)).translate(c + np.array([0, 0, 0.0145])).set_material(slot("Eye"))
-        pupil = p3.uv_sphere(0.0052, 6, 3).scale((1, 1, 0.4)).translate(c + np.array([0, 0, 0.0182])).set_material(slot("Dark"))
+        white = p3.uv_sphere(0.0175 * big, 10, 6).translate(c).set_material(slot("EyeWhite"))
+        iris = p3.uv_sphere(0.0105 * big, 8, 4).scale((1, 1, 0.45)).translate(c + np.array([0, 0, 0.0145 * big])).set_material(slot("Eye"))
+        pupil = p3.uv_sphere(0.0052 * big, 6, 3).scale((1, 1, 0.4)).translate(c + np.array([0, 0, 0.0182 * big])).set_material(slot("Dark"))
         lid = p3.uv_sphere(0.0185, 10, 5).scale((1.05, 0.5, 1.0)).translate(c + np.array([0, 0.011, 0.001])).set_material(slot("Skin"))
         parts += [white, iris, pupil, lid]
     m = p3.Mesh.join(parts, name="Eyes")
@@ -110,6 +112,27 @@ def body_filter(sk, spec):
     return f
 
 
+def build_armor(spec, name, sk, source, hem):
+    """Armor set fitted to this body (separate GLB, same bone names / bind pose)."""
+    armor_meshes = []
+    for aname, a_sdf, cell, skirt_like in EQ.armor_parts(spec):
+        am = a_sdf.to_mesh(cell=cell * (1.5 if FAST else 1.0), name=aname)
+        if am.num_vertices == 0:
+            continue
+        am.colors = None
+        sk.transfer_weights(am, source)
+        if skirt_like:
+            sk.bind_skirt(am, mask=am.vertices[:, 1] < 0.95 * spec.s, top=0.98 * spec.s, bottom=hem, influence=0.45)
+        armor_meshes.append(am)
+    armor = p3.Mesh.join(armor_meshes, name="Armor")
+    arm_scene = p3.Scene(f"Armor_{name}")
+    sk_a = build_skeleton(spec)
+    arm_scene.add(sk_a.root)
+    arm_scene.add(p3.skinned_node(armor, sk_a, "Armor"))
+    print(f"armor_guard_{name}", armor.num_triangles, "->", export_glb(arm_scene, f"armor_guard_{name}", sub="equipment"))
+    return armor
+
+
 def build(name: str):
     t0 = time.time()
     spec = SPECS[name]
@@ -127,6 +150,9 @@ def build(name: str):
     paint_plumes(body, spec)
     sk.bind(body, smooth=6, falloff=5.0, bone_filter=body_filter(sk, spec))
     source = body.copy()
+    if ARMOR_ONLY:  # quick re-export of the armor only (weights still come from this body)
+        build_armor(spec, name, sk, source, C.outfit_parts(spec)[1])
+        return None
 
     # outfit
     garments, hem = C.outfit_parts(spec)
@@ -185,23 +211,7 @@ def build(name: str):
         nodes.append(p3.skinned_node(wings, sk, "Wings"))
         stats["wings"] = wings.num_triangles
 
-    # armor set fitted to this body (separate GLB, same bone names / bind pose)
-    armor_meshes = []
-    for aname, a_sdf, cell, skirt_like in EQ.armor_parts(spec):
-        am = a_sdf.to_mesh(cell=cell * (1.5 if FAST else 1.0), name=aname)
-        if am.num_vertices == 0:
-            continue
-        am.colors = None
-        sk.transfer_weights(am, source)
-        if skirt_like:
-            sk.bind_skirt(am, mask=am.vertices[:, 1] < 0.95 * spec.s, top=0.98 * spec.s, bottom=hem, influence=0.45)
-        armor_meshes.append(am)
-    armor = p3.Mesh.join(armor_meshes, name="Armor")
-    arm_scene = p3.Scene(f"Armor_{name}")
-    sk_a = build_skeleton(spec)
-    arm_scene.add(sk_a.root)
-    arm_scene.add(p3.skinned_node(armor, sk_a, "Armor"))
-    export_glb(arm_scene, f"armor_guard_{name}", sub="equipment")
+    armor = build_armor(spec, name, sk, source, hem)
     stats["armor"] = armor.num_triangles
 
     for n in nodes:
@@ -282,6 +292,9 @@ if __name__ == "__main__":
         sys.exit()
     which = [a for a in sys.argv[1:] if not a.startswith("--")] or list(SPECS)
     for nm in which:
-        sc, skel, nds = build(nm)
+        res = build(nm)
+        if res is None:
+            continue
+        sc, skel, nds = res
         if "--no-review" not in sys.argv:
             review(nm, sc, skel, nds)

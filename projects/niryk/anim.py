@@ -375,9 +375,9 @@ def sample_clip(rig: Rig, clip: str, t: float) -> PoseSet:
         b = smooth(t / 0.3)  # buckle
         f = smooth((t - 0.22) / 0.5)  # fall
         P.hips = np.array([0.04 * f, -0.22 * rig.spec.s * b - 0.6 * rig.spec.s * f, -0.3 * f])
-        P["Hips"] = qm(qy(20 * f), qx(10 * b - 85 * f), qz(10 * f))
-        P["Spine"] = qx(12 * b + 4 * f)
-        P["Chest"] = qm(qx(10 * b + 8 * f), qy(-10 * f))
+        P["Hips"] = qm(qy(20 * f), qx(10 * b * (1 - f) - 88 * f), qz(10 * f))
+        P["Spine"] = qx(12 * b * (1 - f) - 2 * f)  # the back lies flat on the ground at the end
+        P["Chest"] = qm(qx(10 * b * (1 - f) + 2 * f), qy(-10 * f))
         P["Neck"] = qx(12 * b - 6 * f)
         P["Head"] = qm(qx(15 * b - 5 * f), qy(35 * f), qz(10 * f))
         knees = 60 * b + 10 * f
