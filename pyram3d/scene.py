@@ -243,8 +243,8 @@ class Scene:
         for n in self.mesh_nodes():
             if not n.visible or len(n.mesh.vertices) == 0:
                 continue
-            if n.skin is not None:
-                pts = n.mesh.vertices
+            if n.skin is not None and n.mesh.joints is not None:
+                pts = n.skin.pose_vertices(n.mesh)
             else:
                 pts = m3.transform_points(n.world_matrix(), n.mesh.vertices)
             lo = np.minimum(lo, pts.min(axis=0))

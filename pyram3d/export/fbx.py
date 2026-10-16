@@ -559,7 +559,7 @@ def export_fbx(scene, path, embed_textures: bool = True, bake_fps: float | None 
         pose.add("Version", 100)
         pose_nodes = [(model_uid[id(n)], mesh_world)]
         if id(sk.root) in model_uid:
-            pose_nodes.append((model_uid[id(sk.root)], sk.root.world_matrix()))
+            pose_nodes.append((model_uid[id(sk.root)], sk.bind_root_matrix()))
         for bi, b in enumerate(sk.bones):
             w_idx = np.zeros(len(mesh.vertices), dtype=bool)
             ws = np.zeros(len(mesh.vertices))
@@ -577,7 +577,7 @@ def export_fbx(scene, path, embed_textures: bool = True, bake_fps: float | None 
             ce.add("Transform", _mat_array(np.linalg.inv(rest[bi]) @ mesh_world))
             ce.add("TransformLink", _mat_array(rest[bi]))
             if id(sk.root) in model_uid:
-                ce.add("TransformAssociateModel", _mat_array(sk.root.world_matrix()))
+                ce.add("TransformAssociateModel", _mat_array(sk.bind_root_matrix()))
             count("Deformer")
             oo(cid, skin_id)
             oo(model_uid[id(b)], cid)

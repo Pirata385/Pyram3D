@@ -92,6 +92,8 @@ def _collect(scene, time: float | None, animation=None):
                 N = cn[tris]
             else:
                 W = node.world_matrix()
+                if abs(np.linalg.det(W[:3, :3])) < 1e-15:
+                    continue  # zero scale = hidden (e.g. dead particles)
                 wv = m3.transform_points(W, verts)
                 nm = np.linalg.inv(W[:3, :3]).T
                 P = wv[cv[tris]]
@@ -237,13 +239,18 @@ def _camera_for(scene_lo, scene_hi, view, aspect, yfov=35.0, margin=1.08, points
 def render(scene, path=None, width: int = 800, height: int = 600, view="three_quarter", camera=None,
            style: str = "realistic", time: float | None = None, animation=None, background=None,
            shadows: bool = True, ground: bool = True, supersample: int = 2, yfov: float = 35.0,
-           target=None, distance: float | None = None, show: bool = False) -> np.ndarray:
+           target=None, distance: float | None = None, bloom: float = 0.6, fog: float = 0.0,
+           vignette: float = 0.25, exposure: float = 1.0) -> np.ndarray:
     """Render the scene and optionally save a PNG. Returns the (H, W, 3) uint8 image.
 
     view   : "front" | "back" | "left" | "right" | "top" | "three_quarter" | direction vector
     camera : a camera Node from the scene (overrides view)
     target/distance: override auto-framing (look at point, distance from it)
     time   : animation time in seconds (poses rigs / animated nodes)
+    bloom  : glow strength around bright/emissive pixels (0 = off)
+    fog    : atmospheric fog density per meter (e.g. 0.02 for landscapes)
+    vignette: darkening of the image corners (0 = off)
+    exposure: brightness multiplier before tone mapping
     """
     ss = max(int(supersample), 1)
     W, H = width * ss, height * ss
@@ -290,6 +297,7 @@ def render(scene, path=None, width: int = 800, height: int = 600, view="three_qu
     bg = _background(H, W, background if background is not None else scene.background, style)
     img = bg.copy()
     mask = tri_id >= 0
+    hdr = np.zeros((H, W, 3)) if bloom > 0 and style != "normals" else None
 
     # lights
     lights = _scene_lights(scene)
@@ -318,7 +326,10 @@ def render(scene, path=None, width: int = 800, height: int = 600, view="three_qu
             sh = shadow_fn(pos, nrm) if shadow_fn is not None else np.ones(len(pos))
             col = _shade(pos, nrm, view_dir, base, rough, metal, lights, sh, style, scene.ambient)
             col = col + emis
-            col = np.where(unlit[:, None], base, col)
+            col = np.where(unlit[:, None], base + emis, col)
+        col = col * exposure
+        if hdr is not None:
+            hdr[mask] = col
         if style == "wire":
             e = E[t]
             # distance to real polygon edges in barycentric space
@@ -331,6 +342,9 @@ def render(scene, path=None, width: int = 800, height: int = 600, view="three_qu
             line = dmin * px_scale < 0.9 * ss
             col = np.where(line[:, None], np.array([0.02, 0.02, 0.02]), col)
         col = _tonemap(col)
+        if fog > 0:
+            f = 1 - np.exp(-fog * np.linalg.norm(pos - eye, axis=1))
+            col = col * (1 - f[:, None]) + img[mask] * f[:, None]
         a = np.clip(alpha, 0, 1)[:, None]
         img[mask] = col * a + img[mask] * (1 - a)
 
@@ -340,11 +354,39 @@ def render(scene, path=None, width: int = 800, height: int = 600, view="three_qu
     if style == "toon" and mask.any():
         img = _outline(img, depth, tri_id, ss)
 
+    if hdr is not None:
+        lum = hdr.max(axis=2)
+        bright = hdr * (np.clip(lum - 1.0, 0, None) / np.maximum(lum, 1e-6))[:, :, None]
+        if bright.max() > 0:
+            r = max(int(W * 0.012), 2)
+            glow = _blur(bright, r) + 0.5 * _blur(bright, r * 3)
+            lin = m3.srgb_to_linear(np.clip(img, 0, 1)) + glow * bloom
+            img = m3.linear_to_srgb(np.clip(lin, 0, 1))
+    if vignette > 0:
+        yy, xx = np.mgrid[0:H, 0:W]
+        d = np.hypot((xx / W - 0.5) * 2, (yy / H - 0.5) * 2) / math.sqrt(2)
+        img = img * (1 - vignette * np.clip(d - 0.35, 0, 1) ** 1.5 / 0.65 ** 1.5)[:, :, None]
+
     out = downsample(img, ss) if ss > 1 else img
     out8 = to_uint8(np.clip(out, 0, 1))
     if path is not None:
         write_png(path, out8)
     return out8
+
+
+def _blur(img, r: int):
+    """Approximate gaussian blur: three passes of a separable box blur (cumsum)."""
+    out = img
+    for _ in range(3):
+        for ax in (0, 1):
+            pad = [(0, 0)] * out.ndim
+            pad[ax] = (r + 1, r)
+            c = np.cumsum(np.pad(out, pad, mode="edge"), axis=ax)
+            n = out.shape[ax]
+            hi = np.take(c, np.arange(2 * r + 1, 2 * r + 1 + n), axis=ax)
+            lo = np.take(c, np.arange(0, n), axis=ax)
+            out = (hi - lo) / (2 * r + 1)
+    return out
 
 
 def _bary_pixel_scale(tri_id, bary):

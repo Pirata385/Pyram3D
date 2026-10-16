@@ -23,9 +23,9 @@ from .material import Material, Texture, presets, textures
 from .scene import Camera, Light, Node, Scene
 from .animation import Animation, bounce, orbit, spin
 from .armature import Skeleton, skinned_node
-from . import sculpt
+from . import sculpt, physics
 from .sculpt import Brush
-from .terrain import terrain, scatter, water_plane
+from .terrain import flatten, height_at, scatter, terrain, water_plane
 from .importer import load
 from .render import render, render_views, render_frames
 from .viewer import write_viewer
@@ -38,7 +38,8 @@ __all__ = [
     "Skeleton", "skinned_node", "sdf", "noise", "math3d", "sculpt", "Brush", "box", "cube", "rounded_box",
     "plane", "grid", "disc", "sphere", "uv_sphere", "ico_sphere", "cylinder", "cone", "capsule", "torus",
     "lathe", "sweep", "tube", "loft", "extrude_shape", "shapes", "terrain", "scatter", "water_plane", "load",
+    "flatten", "height_at",
     "render", "render_views", "render_frames", "write_viewer", "spin", "bounce", "orbit", "bezier",
     "catmull_rom", "quat_from_euler", "quat_from_axis_angle", "save", "generators", "architecture", "character",
-    "nature", "props", "vehicles",
+    "nature", "props", "vehicles", "physics",
 ]

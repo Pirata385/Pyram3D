@@ -234,7 +234,7 @@ def build_gltf(scene, bake_fps: float | None = None) -> tuple[dict, bytes]:
             md["emissiveFactor"] = [float(x) for x in (em if em.max() > 0 else np.ones(3))]
             if m.emissive_texture is not None:
                 md["emissiveTexture"] = {"index": texture_id(m.emissive_texture)}
-            if m.emissive_strength > 1.0:
+            if m.emissive_strength > 1.0 and not m.unlit:
                 md.setdefault("extensions", {})["KHR_materials_emissive_strength"] = {
                     "emissiveStrength": float(m.emissive_strength)}
                 ext_used.add("KHR_materials_emissive_strength")

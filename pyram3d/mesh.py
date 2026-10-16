@@ -46,6 +46,7 @@ class Mesh:
         self.weights: np.ndarray | None = None
         self.shape_keys: dict[str, np.ndarray] = {}
         self.smooth_angle = float(smooth_angle)
+        self.extras: dict = {}
         if (self.uvs is None) != (self.face_uvs is None):
             raise ValueError("uvs and face_uvs must be given together")
 
@@ -78,6 +79,7 @@ class Mesh:
         m.weights = None if self.weights is None else self.weights.copy()
         m.shape_keys = {k: v.copy() for k, v in self.shape_keys.items()}
         m.smooth_angle = self.smooth_angle
+        m.extras = dict(self.extras)
         return m
 
     # ----------------------------------------------------------- corner data

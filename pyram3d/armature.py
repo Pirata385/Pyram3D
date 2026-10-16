@@ -34,6 +34,7 @@ class Skeleton:
         self.bones: list[Node] = []
         self._head: dict[int, np.ndarray] = {}
         self._tail: dict[int, np.ndarray] = {}
+        self._bind_root: np.ndarray | None = None  # root world matrix captured at bind time
 
     def __repr__(self):
         return f"<Skeleton {self.name!r} {len(self.bones)} bones>"
@@ -93,8 +94,12 @@ class Skeleton:
             b.rotation = b.extras.get("rest_rotation", m3.quat_identity()).copy()
             b.scale = b.extras.get("rest_scale", np.ones(3)).copy()
 
+    def bind_root_matrix(self) -> np.ndarray:
+        """Armature root transform the mesh was bound with (moving the root later moves the character)."""
+        return self._bind_root if self._bind_root is not None else self.root.world_matrix()
+
     def rest_world_matrices(self) -> np.ndarray:
-        root_w = self.root.world_matrix()
+        root_w = self.bind_root_matrix()
         return np.array([root_w @ m3.translation_matrix(self._head[id(b)]) for b in self.bones])
 
     def inverse_bind_matrices(self) -> np.ndarray:
@@ -132,7 +137,8 @@ class Skeleton:
         P = mesh.vertices
         heads = np.array([self._head[id(b)] for b in self.bones])
         tails = np.array([self._tail[id(b)] for b in self.bones])
-        root_w = self.root.world_matrix()
+        self._bind_root = self.root.world_matrix()
+        root_w = self._bind_root
         heads = m3.transform_points(root_w, heads)
         tails = m3.transform_points(root_w, tails)
         nb = len(self.bones)

@@ -191,7 +191,7 @@ def bush(size: float = 1.0, color="#4a7d34", seed: int = 0, berries: str | None 
 
 
 def rock(size: float = 1.0, seed: int = 0, roughness: float = 0.25, flatness: float = 0.7, low_poly: bool = True,
-         color="#8a857e", name: str = "Rock") -> Mesh:
+         color="#8a857e", material=None, name: str = "Rock") -> Mesh:
     """Boulder. low_poly=True gives a faceted game-art rock; False a smooth, detailed one."""
     rng = np.random.default_rng(seed)
     if low_poly:
@@ -205,7 +205,7 @@ def rock(size: float = 1.0, seed: int = 0, roughness: float = 0.25, flatness: fl
         m = s.to_mesh(64)
         m.smooth_angle = 180.0
     m.name = name
-    m.set_material(presets.stone(color, seed=seed))
+    m.set_material(material or presets.stone(color))
     m.uv_box(1.0 / size)
     lo, _ = m.bounds()
     return m.translate((0, -lo[1] - size * 0.08 * flatness, 0))

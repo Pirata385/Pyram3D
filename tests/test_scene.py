@@ -71,3 +71,33 @@ def test_save_helper(tmp_path):
     out = p3.save(s, tmp_path / "thing", size=300, views=False)
     for k in ("glb", "gltf", "fbx", "preview", "viewer"):
         assert out[k].exists()
+
+
+def test_rigid_bodies_settle_on_ground():
+    s = p3.Scene()
+    w = p3.physics.RigidWorld()
+    n = s.add(p3.box(0.4), position=(0, 2, 0), rotation=(30, 20, 10))
+    w.add(n, "box")
+    a = s.animation("Fall")
+    w.simulate(a, 2.0, fps=30, substeps=8)
+    final = a.channel(n, "position").values[-1]
+    assert 0.15 < final[1] < 0.35  # resting on the ground (half size 0.2, possibly tilted)
+
+
+def test_cloth_drape_rests_on_collider():
+    from pyram3d import sdf
+    cloth = p3.plane(1.0, 12).translate((0, 1, 0))
+    out = p3.physics.cloth_drape(cloth, [sdf.box((0, 0.4, 0), (0.6, 0.2, 0.6))], steps=120)
+    center = np.argmin(np.linalg.norm(out.vertices[:, [0, 2]], axis=1))
+    assert 0.49 < out.vertices[center, 1] < 0.56
+    assert out.vertices[:, 1].min() < 0.45  # edges hang down
+
+
+def test_particles_loop(tmp_path):
+    s = p3.Scene()
+    a = s.animation("FX")
+    g = p3.physics.particles(s, a, "sparks", count=5, duration=1.0)
+    assert len(g.children) == 5
+    for c in a.channels:
+        assert np.allclose(c.values[0], c.values[-1], atol=1e-6)  # seamless loop
+    s.export(tmp_path / "fx.glb")

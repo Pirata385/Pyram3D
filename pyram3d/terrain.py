@@ -65,6 +65,7 @@ def terrain(size: float | tuple = 50.0, resolution: int = 128, height: float = 8
         if isinstance(colors, dict):
             cfg.update(colors)
         paint_terrain(m, height, cfg)
+        m.extras["terrain_paint"] = (height, cfg)
     return m
 
 
@@ -147,3 +148,25 @@ def water_plane(size: float = 50.0, level: float = 0.0, material=None, name: str
     m = plane(size, 1, name=name).translate((0, level, 0))
     m.set_material(material or presets.water())
     return m
+
+
+def height_at(surface: Mesh, x: float, z: float) -> float:
+    """Terrain height (y) under the point (x, z), interpolated from the nearest vertices."""
+    d = np.hypot(surface.vertices[:, 0] - x, surface.vertices[:, 2] - z)
+    idx = np.argpartition(d, 3)[:3]
+    w = 1.0 / np.maximum(d[idx], 1e-6) ** 2
+    return float((surface.vertices[idx, 1] * w).sum() / w.sum())
+
+
+def flatten(surface: Mesh, center, radius: float, height: float | None = None, falloff: float | None = None,
+            repaint: bool = True) -> float:
+    """Level the terrain around center=(x, z) (building plots, roads, arenas). Returns the plateau height."""
+    cx, cz = float(center[0]), float(center[-1])
+    h = height_at(surface, cx, cz) if height is None else float(height)
+    fall = radius * 0.6 if falloff is None else falloff
+    d = np.hypot(surface.vertices[:, 0] - cx, surface.vertices[:, 2] - cz)
+    w = 1.0 - m3.smoothstep(radius, radius + fall, d)
+    surface.vertices[:, 1] = surface.vertices[:, 1] * (1 - w) + h * w
+    if repaint and surface.colors is not None and "terrain_paint" in surface.extras:
+        paint_terrain(surface, *surface.extras["terrain_paint"])
+    return h

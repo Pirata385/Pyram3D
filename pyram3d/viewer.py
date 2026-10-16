@@ -85,7 +85,7 @@ scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 const camera = new THREE.PerspectiveCamera(40, 1, 0.01, 2000);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
-let mixer = null, clips = [], action = null, playing = true, home = null;
+let mixer = null, clips = [], playing = true, home = null;
 const clock = new THREE.Clock();
 
 function resize() {
@@ -137,23 +137,27 @@ new GLTFLoader().parse(b64ToBuffer(MODEL_B64), "", (gltf) => {
   const sel = document.getElementById("clip");
   if (clips.length) {
     mixer = new THREE.AnimationMixer(root);
-    sel.innerHTML = clips.map((c, i) => `<option value="${i}">${c.name || "Clip " + (i + 1)}</option>`).join("");
+    const opts = clips.map((c, i) => `<option value="${i}">${c.name || "Clip " + (i + 1)}</option>`);
+    if (clips.length > 1) opts.unshift(`<option value="all">All together</option>`);
+    sel.innerHTML = opts.join("");
     sel.disabled = false; document.getElementById("play").disabled = false;
-    playClip(0);
+    playClip(clips.length > 1 ? "all" : 0);
   }
   statusEl.hidden = true;
 }, (err) => { statusEl.textContent = "Could not load the model: " + (err.message || err); });
 
+let actions = [];
 function playClip(i) {
   if (!mixer) return;
-  if (action) action.stop();
-  action = mixer.clipAction(clips[i]); action.reset().play();
+  actions.forEach((a) => a.stop());
+  const list = i === "all" ? clips : [clips[+i]];
+  actions = list.map((c) => mixer.clipAction(c).reset().play());
 }
 function resetView() {
   if (!home) return;
   camera.position.copy(home.pos); controls.target.copy(home.target); controls.update();
 }
-document.getElementById("clip").addEventListener("change", (e) => playClip(+e.target.value));
+document.getElementById("clip").addEventListener("change", (e) => playClip(e.target.value));
 document.getElementById("play").addEventListener("click", (e) => {
   playing = !playing; e.target.textContent = playing ? "Pause" : "Play"; e.target.setAttribute("aria-pressed", String(playing));
 });
