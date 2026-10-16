@@ -201,6 +201,76 @@ class Skeleton:
         mesh.weights = weights
         return mesh
 
+    def bind_skirt(self, mesh: Mesh, mask=None, hips: str = "Hips", left: str = "LeftUpperLeg",
+                   right: str = "RightUpperLeg", top: float | None = None, bottom: float | None = None,
+                   influence: float = 0.8, side_blend: float | None = None) -> Mesh:
+        """Weights for skirts, robes and long coats that must not tear between the legs.
+
+        Vertices in `mask` (default: everything below the hip joint) are shared between the
+        hips and both thighs: the lower the vertex, the more it follows the thighs (up to
+        `influence`), split left/right with a smooth blend across x = 0. Call after bind()
+        so the rest of the garment keeps its normal weights.
+        """
+        P = mesh.vertices
+        root_w = self.bind_root_matrix()
+        hy = m3.transform_points(root_w, self.head(hips)[None])[0][1] if top is None else top
+        ky = m3.transform_points(root_w, self.tail(left)[None])[0][1] if bottom is None else bottom
+        if mask is None:
+            mask = P[:, 1] < hy
+        mask = np.asarray(mask)
+        if mask.dtype != bool:
+            m = np.zeros(len(P), dtype=bool)
+            m[mask] = True
+            mask = m
+        cx = m3.transform_points(root_w, self.head(hips)[None])[0][0]
+        width = side_blend or abs(self.head(left)[0] - self.head(right)[0]) * 0.6
+        down = np.clip((hy - P[:, 1]) / max(hy - ky, 1e-6), 0, 1) * influence
+        side = m3.smoothstep(-width, width, P[:, 0] - cx)
+        W = np.zeros((len(P), len(self.bones)))
+        W[:, self.index(hips)] = 1 - down
+        W[:, self.index(left)] = down * side
+        W[:, self.index(right)] = down * (1 - side)
+        j, w = _top_k(W, 4)
+        if mesh.joints is None:
+            mesh.joints, mesh.weights = j, w
+        else:
+            mesh.joints[mask], mesh.weights[mask] = j[mask], w[mask]
+        return mesh
+
+    def split_mesh(self, mesh: Mesh, groups: dict, name_prefix: str = "") -> dict:
+        """Split a skinned mesh into parts by dominant bone, e.g. for modular characters:
+
+            parts = sk.split_mesh(body, {"Head": ["Head", "Neck"], "Arms": ["LeftUpperArm", ...], ...})
+
+        Bones not listed go to the first group. Frozen normals keep the seams invisible
+        (call mesh.freeze_normals() first). Returns {group_name: Mesh}.
+        """
+        bone_group = {}
+        names = list(groups)
+        for g, bones in groups.items():
+            for b in bones:
+                bone_group[self.index(b)] = names.index(g)
+        dom = mesh.joints[np.arange(len(mesh.joints)), np.argmax(mesh.weights, axis=1)]
+        vgroup = np.array([bone_group.get(int(b), 0) for b in dom])
+        # a face belongs to the group most of its corners belong to
+        face_group = np.array([np.bincount(vgroup[list(f)], minlength=len(names)).argmax() for f in mesh.faces])
+        out = {}
+        for gi, g in enumerate(names):
+            sel = np.flatnonzero(face_group == gi)
+            if len(sel):
+                out[g] = mesh.separate(sel, name=name_prefix + g)
+        return out
+
+    def add_socket(self, name: str, bone: Node | str, position, rotation=None) -> Node:
+        """Empty attachment point (weapons, shields, helmets, backpacks) parented to a bone.
+
+        `position` is in armature/rest space; the socket follows the bone when animated.
+        """
+        b = self.bone(bone) if isinstance(bone, str) else bone
+        node = b.add(None, name=name, position=m3.vec3(position) - self.head(b), rotation=rotation)
+        node.extras["is_socket"] = True
+        return node
+
     def attach(self, node: Node, bone: Node | str) -> Node:
         """Rigidly attach an object (hat, sword, glasses) to a bone, keeping its current world placement."""
         b = self.bone(bone) if isinstance(bone, str) else bone

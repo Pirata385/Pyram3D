@@ -538,6 +538,7 @@ def export_fbx(scene, path, embed_textures: bool = True, bake_fps: float | None 
         write_node(n, I64(0))
 
     # ------------------------------------------------------------ skins + bind poses
+    pose_by_skeleton: dict[int, list] = {}
     for n in all_nodes:
         sk = n.skin
         if sk is None or n.mesh is None or n.mesh.joints is None:
@@ -545,7 +546,7 @@ def export_fbx(scene, path, embed_textures: bool = True, bake_fps: float | None 
         mesh = n.mesh
         gid = geometry_uid(mesh)
         skin_id = uid()
-        se = objects.add("Deformer", skin_id, _name(mesh.name + "_Skin", "Deformer"), "Skin")
+        se = objects.add("Deformer", skin_id, _name(n.name + "_Skin", "Deformer"), "Skin")
         se.add("Version", 101)
         se.add("Link_DeformAcuracy", 50.0)
         se.add("SkinningType", "Linear")
@@ -553,13 +554,13 @@ def export_fbx(scene, path, embed_textures: bool = True, bake_fps: float | None 
         oo(skin_id, gid)
         mesh_world = n.world_matrix()
         rest = sk.rest_world_matrices()
-        pose_id = uid()
-        pose = objects.add("Pose", pose_id, _name(mesh.name + "_BindPose", "Pose"), "BindPose")
-        pose.add("Type", "BindPose")
-        pose.add("Version", 100)
-        pose_nodes = [(model_uid[id(n)], mesh_world)]
-        if id(sk.root) in model_uid:
-            pose_nodes.append((model_uid[id(sk.root)], sk.bind_root_matrix()))
+        pose_nodes = pose_by_skeleton.setdefault(id(sk), [])
+        if not pose_nodes:
+            if id(sk.root) in model_uid:
+                pose_nodes.append((model_uid[id(sk.root)], sk.bind_root_matrix()))
+            for bi, b in enumerate(sk.bones):
+                pose_nodes.append((model_uid[id(b)], rest[bi]))
+        pose_nodes.append((model_uid[id(n)], mesh_world))
         for bi, b in enumerate(sk.bones):
             w_idx = np.zeros(len(mesh.vertices), dtype=bool)
             ws = np.zeros(len(mesh.vertices))
@@ -581,7 +582,11 @@ def export_fbx(scene, path, embed_textures: bool = True, bake_fps: float | None 
             count("Deformer")
             oo(cid, skin_id)
             oo(model_uid[id(b)], cid)
-            pose_nodes.append((model_uid[id(b)], rest[bi]))
+    for sk_id, pose_nodes in pose_by_skeleton.items():
+        pose_id = uid()
+        pose = objects.add("Pose", pose_id, _name("BindPose", "Pose"), "BindPose")
+        pose.add("Type", "BindPose")
+        pose.add("Version", 100)
         pose.add("NbPoseNodes", len(pose_nodes))
         for muid, mtx in pose_nodes:
             pn = pose.add("PoseNode")

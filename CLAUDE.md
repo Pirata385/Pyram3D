@@ -105,6 +105,18 @@ p3.character.quadruped_walk(scene.animation("DogWalk"), dog.skeleton)
 #   sdf.capsule(a, b, r, color=..., bone="LeftArm"); shape.paint(bone="Head"); sk.bind(mesh, rigid=True)
 #   (see examples/robot_character.py). Model characters in T-pose so limbs don't touch the body.
 
+# Game-ready characters (see projects/oni/build.py for a complete example)
+sk.add_socket("Socket_Weapon_R", "RightHand", pos)        # empty attach points for gear
+sk.bind_skirt(dress, mask)                                # skirts/robes shared between hips and thighs
+body.freeze_normals(); parts = sk.split_mesh(body, {"Body_Head": ["Head", "Neck"], ...})  # modular body
+mesh.subdivide_region(faces); shape.project(mesh)         # local detail (faces) on SDF meshes
+shape.to_mesh(cell=0.012)                                  # consistent density in meters across parts
+from pyram3d.palette import palettize                      # vertex colors -> tiny palette texture, flat
+mat, colors = palettize([body, hair, outfit], palette=[...])  # face colors, nearest filter (pixel art,
+                                                           # palette swaps, works in Unity's default shader)
+p3.render(scene, "px.png", style="toon", pixel=4, yfov=12, view=(0.8, 1.4, 1), target=(0, 0.85, 0), distance=9)
+# ^ isometric pixel-art game preview; node.extras["outline_group"]="body" removes ink lines between parts
+
 # Worlds
 t = p3.terrain(size=80, resolution=160, height=10, island=0.8, seed=3)
 for s in p3.scatter(t, 40, max_slope=25, min_height=0.5, seed=1):
@@ -155,6 +167,9 @@ CLI: `python -m pyram3d info|render|convert|viewer|check|run …` (e.g. `convert
 - glTF output passes the Khronos glTF-Validator with 0 errors.
 - Physics is simple and baked: rigid bodies collide with the ground and (as spheres) with each other;
   cloth is Verlet mass-spring against SDF colliders; particles are instanced animated nodes.
+- Thin SDF parts (< ~2 grid cells) vanish: mesh them separately at a finer `cell`/resolution and merge
+  (e.g. a hair fringe), or thicken them.
+- Long skirts: split them into panels (front/back slits) so each follows one leg without tearing.
 - Not implemented yet (see docs/ROADMAP.md): fluid/volumetric smoke simulation, path-traced renders,
   automatic UV unwrapping, decimation/retopology, bevel on selected edges, IK. Say so when a request needs them.
 - If you change the library API, regenerate the docs: `python tools/gen_api_docs.py`.

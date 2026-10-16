@@ -57,6 +57,7 @@ when `return_faces=True`.
 - `verts_where(self, predicate: 'Callable[[np.ndarray], np.ndarray]') -> 'np.ndarray'`
 - `triangulate(self) -> "'Mesh'"`
 - `subdivide(self, levels: 'int' = 1, smooth: 'bool' = True) -> "'Mesh'"` — Catmull-Clark subdivision (smooth=True) or simple linear subdivision.
+- `subdivide_region(self, faces: 'FaceSel', levels: 'int' = 1) -> "'Mesh'"` — Linear subdivision of selected faces only, crack-free (neighbours get the edge
 - `extrude(self, faces: 'FaceSel' = None, distance: 'float' = 0.1, offset=None, individual: 'bool' = False, return_faces: 'bool' = False)` — Extrude a region of faces along their normals (or by an `offset` vector).
 - `inset(self, faces: 'FaceSel' = None, thickness: 'float' = 0.05, depth: 'float' = 0.0, return_faces: 'bool' = False)` — Inset each selected face individually (creates a border ring of quads).
 - `mirror(self, axis: 'str' = 'x', weld: 'bool' = True, threshold: 'float' = 0.0001) -> "'Mesh'"` — Mirror across the plane axis=0 and append (symmetric modeling).
@@ -78,6 +79,7 @@ when `return_faces=True`.
 - `set_color(self, color, verts=None, func: 'Callable[[np.ndarray], np.ndarray] | None' = None) -> "'Mesh'"` — Paint vertex colors (sRGB input). `func(points)->(N,3|4)` sRGB for gradients.
 - `shade_flat(self) -> "'Mesh'"`
 - `shade_smooth(self, angle: 'float' = 180.0) -> "'Mesh'"`
+- `freeze_normals(self) -> "'Mesh'"` — Store smooth per-vertex normals so they survive splitting the mesh into parts
 - `add_shape_key(self, name: 'str', func: 'Callable[[np.ndarray], np.ndarray] | None' = None, positions=None) -> "'Mesh'"` — Add a morph target (blend shape) e.g. for facial expressions.
 - `stats(self) -> 'dict'`
 - `validate(self) -> 'list[str]'` — Return a list of human-readable problems (empty list = OK).
@@ -216,9 +218,10 @@ Base class: callable mapping points (N,3) -> signed distances (N,).
 - `mirror_x(self) -> "'SDF'"` — Symmetric copy across x=0 (model one side of a character).
 - `round(self, radius: 'float') -> "'SDF'"`
 - `shell(self, thickness: 'float') -> "'SDF'"` — Hollow shell (onion) of the given thickness.
-- `displace(self, amount: 'float' = 0.02, scale: 'float' = 4.0, octaves: 'int' = 4, seed: 'int' = 0, func: 'Callable[[np.ndarray], np.ndarray] | None' = None) -> "'SDF'"` — Add noise (or func(points)->(N,)) to the surface: bumps, rock roughness, bark.
+- `displace(self, amount: 'float' = 0.02, scale: 'float' = 4.0, octaves: 'int' = 4, seed: 'int' = 0, func: 'Callable[[np.ndarray], np.ndarray] | None' = None) -> "'SDF'"` — Add noise (or func(points)->(N,) offsets in meters, scaled by amount) to the surface.
+- `project(self, mesh: 'Mesh', iterations: 'int' = 3, verts=None, max_step: 'float | None' = None) -> 'Mesh'` — Snap mesh vertices onto this surface (Newton steps along the gradient).
 - `paint(self, color=None, material=None, bone=None) -> "'SDF'"` — Set the color/material/bone of every leaf of this shape.
-- `to_mesh(self, resolution: 'int' = 96, bounds=None, padding: 'float' = 0.05, smooth: 'bool' = True, name: 'str' = 'SDFMesh', project_iterations: 'int' = 2, colors: 'bool | None' = None, default_color='#cccccc') -> 'Mesh'` — Polygonize with naive surface nets (quad mesh).
+- `to_mesh(self, resolution: 'int' = 96, bounds=None, padding: 'float' = 0.05, smooth: 'bool' = True, name: 'str' = 'SDFMesh', project_iterations: 'int' = 2, colors: 'bool | None' = None, default_color='#cccccc', cell: 'float | None' = None) -> 'Mesh'` — Polygonize with naive surface nets (quad mesh).
 
 ### class `Sphere(center=(0, 0, 0), radius: 'float' = 0.5, **kw)`
 
@@ -508,6 +511,32 @@ Ready-made materials. Every function accepts overrides as keyword args.
 - `toon(color='#ff8844', **kw)`
 - `vertex_color(**kw)` — White material so vertex colors show through unchanged.
 
+## Palette textures (pyram3d.palette)
+
+Palette texturing for pixel-art / stylized games.
+
+`palettize` turns vertex-colored meshes into one small palette texture shared by
+all of them: every face gets exactly one palette color (flat "pixel" look, no
+blending between colors), and the texture uses nearest-neighbour filtering.
+
+Why: many engine default shaders (e.g. Unity Lit) ignore vertex colors, while a
+texture always works. A palette texture also enables palette swaps — recolor the
+tiny PNG to make skin/costume variants without touching the model.
+
+### `face_colors(mesh: 'Mesh') -> 'np.ndarray'`
+
+Average vertex color (linear RGBA) of each face.
+
+### `palettize(meshes: 'list[Mesh]', palette=None, max_colors: 'int' = 32, swatch: 'int' = 4, name: 'str' = 'Palette', roughness: 'float' = 0.8, material: 'Material | None' = None, keep_vertex_colors: 'bool' = False, mode: 'str' = 'majority') -> 'tuple[Material, list]'`
+
+Bake vertex colors of `meshes` into a shared palette texture (flat color per face).
+
+palette   : optional list of sRGB colors to snap to (exact art-directed palette);
+            otherwise up to `max_colors` are chosen automatically (k-means).
+swatch    : pixels per palette entry in the texture.
+mode      : "majority" (crisp details, default) or "average" (smoother color regions).
+Returns (material, palette_srgb_list). Each mesh gets UVs and the material.
+
 ## Scene graph (pyram3d.scene)
 
 Scene graph: nodes with transforms, meshes, lights, cameras, skeletons.
@@ -644,6 +673,9 @@ Characters face +Z. Their LEFT side is +X, RIGHT side is -X.
 - `joint_matrices(self) -> 'np.ndarray'` — Current skinning matrices (world-space pose @ inverse bind).
 - `pose_vertices(self, mesh: 'Mesh') -> 'np.ndarray'` — Linear blend skinning of mesh vertices for the current pose.
 - `bind(self, mesh: 'Mesh', rigid: 'bool' = False, smooth: 'int' = 4, falloff: 'float' = 4.0, max_influences: 'int' = 4, exclude: 'list[str] | None' = None, bone_filter=None) -> 'Mesh'` — Compute automatic skin weights for `mesh` (vertices in world/rest space).
+- `bind_skirt(self, mesh: 'Mesh', mask=None, hips: 'str' = 'Hips', left: 'str' = 'LeftUpperLeg', right: 'str' = 'RightUpperLeg', top: 'float | None' = None, bottom: 'float | None' = None, influence: 'float' = 0.8, side_blend: 'float | None' = None) -> 'Mesh'` — Weights for skirts, robes and long coats that must not tear between the legs.
+- `split_mesh(self, mesh: 'Mesh', groups: 'dict', name_prefix: 'str' = '') -> 'dict'` — Split a skinned mesh into parts by dominant bone, e.g. for modular characters:
+- `add_socket(self, name: 'str', bone: 'Node | str', position, rotation=None) -> 'Node'` — Empty attachment point (weapons, shields, helmets, backpacks) parented to a bone.
 - `attach(self, node: 'Node', bone: 'Node | str') -> 'Node'` — Rigidly attach an object (hat, sword, glasses) to a bone, keeping its current world placement.
 - `describe(self) -> 'str'`
 
@@ -729,6 +761,9 @@ bloom  : glow strength around bright/emissive pixels (0 = off)
 fog    : atmospheric fog density per meter (e.g. 0.02 for landscapes)
 vignette: darkening of the image corners (0 = off)
 exposure: brightness multiplier before tone mapping
+pixel  : > 1 renders at 1/pixel resolution and upscales with hard pixels (pixel-art preview)
+outline: dark silhouette/crease lines (default on for "toon")
+rim    : rim-light strength (default 0.6 for "toon", 0 otherwise) — Hades-like edge glow
 
 ## Saving (pyram3d.project)
 
