@@ -36,11 +36,11 @@ def legs(spec: BodySpec):
     ball = J["LeftFoot"][1]
     toe = J["LeftToes"][1]
     parts = []
-    # feathered thigh "trousers": full and fluffy
-    thigh = plume(sdf.round_cone(hip + np.array([0, 0.02, -0.01]), knee + np.array([0, -0.02, 0.0]), 0.108 * L, 0.075 * L))
-    thigh = thigh.smooth_union(plume(sdf.ellipsoid((hip + knee) / 2 + np.array([0.012, -0.04, 0.0]),
-                                                   (0.1 * L, 0.15 * spec.s, 0.1 * L))), 0.04)
-    parts.append(thigh.displace(**_tufts(0.014, 24, 1)))
+    # feathered thigh (mostly under the tunic: kept slim so the skirt stays an A-line, ref. 06)
+    thigh = plume(sdf.round_cone(hip + np.array([0, -0.05, -0.005]), knee + np.array([0, -0.02, 0.0]), 0.086 * L, 0.068 * L))
+    thigh = thigh.smooth_union(plume(sdf.ellipsoid((hip + knee) / 2 + np.array([0.008, -0.03, 0.0]),
+                                                   (0.08 * L, 0.13 * spec.s, 0.085 * L))), 0.04)
+    parts.append(thigh.displace(**_tufts(0.01, 24, 1)))
     # slim plumed shin and tarsus with a frayed cuff above the toes
     parts.append(plume(sdf.round_cone(knee, ankle, 0.056 * L, 0.036 * L), 0.95).displace(**_tufts(0.008, 34, 2)))
     parts.append(plume(sdf.sphere(ankle, 0.04 * L), 0.92))
@@ -123,7 +123,8 @@ def feather(root, tip, width, normal, cup=0.12, curl=0.0, asym=0.15, segs=6, ton
         rgt = c + side * w * (1 + asym) + nrm * cup * w
         band = tip_band if t > 0.8 else (0.93 if t > 0.62 else 1.0)
         V += [lft, c, rgt]
-        C += [[tone * band * 0.86] * 3 + [1.0], [tone * min(1.0, band * 1.08)] * 3 + [1.0], [tone * band * 0.86] * 3 + [1.0]]
+        # dark trailing edge, light vane: overlapping feathers read as stripes even at game scale
+        C += [[tone * band * 0.58] * 3 + [1.0], [tone * min(1.0, band * 1.08)] * 3 + [1.0], [tone * band * 0.94] * 3 + [1.0]]
     for i in range(segs):
         a, b = i * 3, (i + 1) * 3
         F += [(a, a + 1, b + 1), (a, b + 1, b), (a + 1, a + 2, b + 2), (a + 1, b + 2, b + 1)]
@@ -164,7 +165,7 @@ def wing_left(spec: BodySpec, sk: p3.Skeleton):
         root = W + down * 0.06 + inward * (0.02 + 0.07 * t) - normal * 0.01 * (1 - t)
         tip = T + inward * (0.26 * t) + np.array([0, 0.3 * spec.s * t ** 1.4, 0]) - normal * 0.006 * k
         pieces.append((feather(root, tip, 0.13 - 0.015 * t, normal, cup=0.1, curl=0.04, asym=-0.2,
-                               tone=0.94 + 0.06 * t), "LeftWing3"))
+                               tone=(0.86 if k % 2 else 1.0) * (0.94 + 0.06 * t), tip_band=0.6), "LeftWing3"))
     # secondaries: hang from the arm, shorter toward the body
     n_s = 11
     arm = [S + (E - S) * 0.25, E, W]
@@ -175,8 +176,8 @@ def wing_left(spec: BodySpec, sk: p3.Skeleton):
         tip_y = _lerp(0.82, 1.12, t) * spec.s
         tip = np.array([root[0] + 0.03 - 0.02 * t, tip_y, root[2] - 0.02]) + inward * 0.02
         bone = "LeftWing2" if t < 0.4 else "LeftWing1"
-        pieces.append((feather(root, tip, 0.13, normal, cup=0.12, curl=0.03, asym=0.1, tone=0.9 + 0.08 * t),
-                       bone))
+        pieces.append((feather(root, tip, 0.13, normal, cup=0.12, curl=0.03, asym=0.1,
+                               tone=(0.84 if k % 2 else 0.97) * (0.9 + 0.08 * t), tip_band=0.64), bone))
     # coverts: two rows of short feathers over the secondaries' roots (front and back faces)
     for row, (ln, off, nf) in enumerate(((0.36, 0.012, 12), (0.2, 0.022, 10))):
         for k in range(nf):

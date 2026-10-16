@@ -106,53 +106,78 @@ def _clumps(amount, scale=22.0, seed=0):
     return dict(amount=amount, func=f)
 
 
+def _spikes(base, direction, n, length, radius, spread, color, seed=0, shade=1.0):
+    """A fan of angular fur tufts (thin cones) growing from `base` roughly along `direction`."""
+    rng = np.random.default_rng(seed)
+    d0 = np.asarray(direction, float)
+    d0 /= np.linalg.norm(d0)
+    out = []
+    for i in range(n):
+        off = np.asarray(spread, float) * (rng.random(3) * 2 - 1)
+        a = np.asarray(base, float) + off
+        d = d0 + rng.normal(0, 0.18, 3)
+        d /= np.linalg.norm(d)
+        ln = length * (0.75 + 0.5 * rng.random())
+        out.append(fur(sdf.round_cone(tuple(a), tuple(a + d * ln), radius, 0.003), color, shade * (0.92 + 0.12 * rng.random())))
+    return out
+
+
 def wolf_sdf():
     parts = []
-    # torso: deep chest, tucked waist, haunches
-    parts.append(fur(sdf.ellipsoid((0, 0.8, 0.18), (0.15, 0.2, 0.22)), FLANK))  # chest
-    parts.append(fur(sdf.ellipsoid((0, 0.76, -0.12), (0.115, 0.13, 0.25)), FLANK))  # waist
-    parts.append(fur(sdf.ellipsoid((0, 0.74, -0.42), (0.13, 0.15, 0.17)), FLANK))  # haunches
-    parts.append(fur(sdf.ellipsoid((0, 0.86, -0.05), (0.1, 0.07, 0.42)), SADDLE))  # dark saddle along the back
-    parts.append(fur(sdf.ellipsoid((0, 0.66, 0.2), (0.12, 0.16, 0.16)), PALE))  # chest ruff
-    parts.append(fur(sdf.ellipsoid((0, 0.66, -0.12), (0.08, 0.06, 0.2)), PALE, 0.95))  # belly
-    # neck ruff and head
-    parts.append(fur(sdf.round_cone((0, 0.82, 0.28), (0, 0.93, 0.48), 0.14, 0.1), FLANK))
-    parts.append(fur(sdf.ellipsoid((0, 0.9, 0.36), (0.13, 0.12, 0.1)), SADDLE, 1.1))  # mane
-    parts.append(fur(sdf.ellipsoid((0, 0.97, 0.58), (0.085, 0.08, 0.1)), FLANK))  # skull
-    parts.append(fur(sdf.ellipsoid((0.06, 0.94, 0.6), (0.04, 0.05, 0.06)), PALE).mirror_x())  # cheek ruff
-    parts.append(fur(sdf.round_cone((0, 0.95, 0.62), (0, 0.925, 0.82), 0.05, 0.026), FLANK, 1.05))  # snout top
-    parts.append(fur(sdf.round_cone((0, 0.9, 0.62), (0, 0.885, 0.79), 0.042, 0.022), PALE))  # muzzle / jaw
-    parts.append(sdf.sphere((0, 0.94, 0.835), 0.019).paint(color=(1, 1, 1), material=DARK))  # nose
+    # torso: heavy chest and shoulders, tucked waist, lean haunches (Hades-like wedge silhouette)
+    parts.append(fur(sdf.ellipsoid((0, 0.8, 0.17), (0.165, 0.215, 0.23)), FLANK))  # chest
+    parts.append(fur(sdf.ellipsoid((0, 0.87, 0.12), (0.14, 0.09, 0.17)), SADDLE, 1.05))  # shoulder hump
+    parts.append(fur(sdf.ellipsoid((0, 0.76, -0.12), (0.11, 0.12, 0.25)), FLANK))  # waist
+    parts.append(fur(sdf.ellipsoid((0, 0.75, -0.42), (0.125, 0.14, 0.16)), FLANK))  # haunches
+    parts.append(fur(sdf.ellipsoid((0, 0.85, -0.1), (0.085, 0.06, 0.38)), SADDLE))  # dark saddle along the back
+    parts.append(fur(sdf.ellipsoid((0, 0.65, 0.22), (0.12, 0.17, 0.15)), PALE))  # chest ruff
+    parts.append(fur(sdf.ellipsoid((0, 0.66, -0.12), (0.075, 0.055, 0.2)), PALE, 0.95))  # belly
+    # neck and an angular mane swept back over the shoulders
+    parts.append(fur(sdf.round_cone((0, 0.82, 0.28), (0, 0.94, 0.48), 0.15, 0.105), FLANK))
+    parts.append(fur(sdf.ellipsoid((0, 0.91, 0.36), (0.14, 0.12, 0.11)), SADDLE, 1.1))  # mane
+    parts += _spikes((0, 0.95, 0.4), (0, 0.35, -1), 9, 0.17, 0.035, (0.09, 0.04, 0.05), SADDLE, seed=1, shade=1.05)
+    parts += [p.mirror_x() for p in _spikes((0.11, 0.86, 0.4), (0.6, 0.05, -1), 5, 0.14, 0.03, (0.02, 0.06, 0.05), FLANK, seed=2)]
+    parts += _spikes((0, 0.55, 0.24), (0, -0.6, 0.35), 6, 0.12, 0.03, (0.07, 0.02, 0.03), PALE, seed=3)  # chest tuft
+    # head: bigger wedge skull, strong brow, long snout
+    parts.append(fur(sdf.ellipsoid((0, 0.975, 0.58), (0.095, 0.085, 0.11)), FLANK))  # skull
+    parts.append(fur(sdf.ellipsoid((0, 1.01, 0.6), (0.075, 0.035, 0.07)), SADDLE, 1.15))  # brow / forehead
+    parts += [p.mirror_x() for p in _spikes((0.075, 0.93, 0.57), (0.7, -0.2, -0.6), 3, 0.09, 0.028, (0.01, 0.02, 0.02), PALE, seed=4)]  # cheek ruff
+    parts.append(fur(sdf.round_cone((0, 0.955, 0.63), (0, 0.925, 0.83), 0.056, 0.03), FLANK, 1.05))  # snout top
+    parts.append(fur(sdf.round_cone((0, 0.9, 0.63), (0, 0.885, 0.8), 0.046, 0.024), PALE))  # muzzle / jaw
+    parts.append(sdf.sphere((0, 0.942, 0.845), 0.022).paint(color=(1, 1, 1), material=DARK))  # nose
     # ears: tall triangles
-    ear = sdf.round_cone((0.05, 1.03, 0.56), (0.08, 1.16, 0.53), 0.034, 0.006)
+    ear = sdf.round_cone((0.055, 1.03, 0.56), (0.088, 1.18, 0.52), 0.04, 0.006)
     parts.append(fur(ear, SADDLE).mirror_x())
-    # legs
+    # legs: muscular tops, gray shanks, pale only at the paws
     for (a, b, r1, r2, c) in [
-        ((0.13, 0.74, 0.27), (0.14, 0.45, 0.2), 0.07, 0.042, FLANK),
-        ((0.14, 0.45, 0.2), (0.13, 0.13, 0.25), 0.036, 0.026, PALE),
-        ((0.13, 0.13, 0.25), (0.13, 0.035, 0.33), 0.03, 0.028, PALE),
-        ((0.12, 0.72, -0.42), (0.13, 0.46, -0.32), 0.085, 0.05, FLANK),
-        ((0.13, 0.46, -0.32), (0.13, 0.21, -0.5), 0.042, 0.03, FLANK),
-        ((0.13, 0.21, -0.5), (0.13, 0.04, -0.44), 0.028, 0.026, PALE),
-        ((0.13, 0.035, -0.45), (0.13, 0.03, -0.37), 0.03, 0.026, PALE),
+        ((0.13, 0.76, 0.26), (0.14, 0.45, 0.2), 0.082, 0.046, FLANK),
+        ((0.14, 0.45, 0.2), (0.13, 0.13, 0.25), 0.04, 0.03, FLANK),
+        ((0.13, 0.13, 0.25), (0.13, 0.035, 0.33), 0.034, 0.032, PALE),
+        ((0.12, 0.73, -0.42), (0.13, 0.46, -0.32), 0.095, 0.054, FLANK),
+        ((0.13, 0.46, -0.32), (0.13, 0.21, -0.5), 0.045, 0.032, FLANK),
+        ((0.13, 0.21, -0.5), (0.13, 0.04, -0.44), 0.03, 0.028, FLANK),
+        ((0.13, 0.035, -0.45), (0.13, 0.03, -0.37), 0.034, 0.03, PALE),
     ]:
         parts.append(fur(sdf.round_cone(a, b, r1, r2), c).mirror_x())
-    # tail: bushy, dark tip
-    tail = sdf.chain(TAIL, [0.05, 0.075, 0.08, 0.07, 0.03], k=0.04)
+    # elbow and heel tufts
+    parts += [p.mirror_x() for p in _spikes((0.15, 0.47, 0.17), (0, -0.4, -1), 2, 0.07, 0.022, (0.01, 0.01, 0.01), FLANK, seed=5)]
+    # tail: bushy, angular tufts, dark tip
+    tail = sdf.chain(TAIL, [0.05, 0.08, 0.085, 0.072, 0.03], k=0.04)
     parts.append(fur(tail, FLANK))
-    parts.append(fur(sdf.ellipsoid(TAIL[-1], (0.05, 0.07, 0.05)), SADDLE, 0.8))
-    body = sdf.smooth_union(*parts, k=0.04).displace(**_clumps(0.01, 13, 3))
-    # mouth opening line (the jaw bone opens it); eye sockets
-    body = body.smooth_subtract(sdf.ellipsoid((0.0, 0.905, 0.75), (0.045, 0.006, 0.08)).paint(material=MOUTH, color=(1, 1, 1)), 0.004)
+    parts += _spikes(TAIL[2], (0, -0.3, -1), 6, 0.12, 0.03, (0.05, 0.08, 0.06), FLANK, seed=6)
+    parts.append(fur(sdf.round_cone(TAIL[-2], (0, 0.3, -1.03), 0.05, 0.006), SADDLE, 0.8))
+    body = sdf.smooth_union(*parts, k=0.03).displace(**_clumps(0.006, 10, 3))
+    # mouth opening line (the jaw bone opens it)
+    body = body.smooth_subtract(sdf.ellipsoid((0.0, 0.905, 0.76), (0.048, 0.006, 0.08)).paint(material=MOUTH, color=(1, 1, 1)), 0.004)
     return body
 
 
 def eyes_mesh():
     parts = []
     for sx in (1, -1):
-        e = p3.uv_sphere(0.017, 10, 6).scale((1, 0.7, 1)).rotate((0, sx * 35, 0)).translate((sx * 0.052, 0.985, 0.66))
+        e = p3.uv_sphere(0.02, 10, 6).scale((1, 0.62, 1)).rotate((0, sx * 35, 0)).translate((sx * 0.058, 0.99, 0.665))
         parts.append(e.set_material(EYE))
-        pupil = p3.uv_sphere(0.007, 6, 4).scale((0.5, 1, 0.5)).translate((sx * 0.062, 0.985, 0.674))
+        pupil = p3.uv_sphere(0.008, 6, 4).scale((0.5, 1, 0.5)).translate((sx * 0.069, 0.99, 0.68))
         parts.append(pupil.set_material(DARK))
     teeth = []
     for sx in (1, -1):  # fangs, visible when biting

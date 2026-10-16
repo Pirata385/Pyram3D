@@ -73,7 +73,7 @@ def cuirass(spec: BodySpec):
     body = sdf.smooth_union(*torso(spec), k=0.03)
     t = 0.045 if spec.gender == "m" else 0.04
     shell = _mat(body.round(t), STEEL).intersect(_slab(1.0 * s, 1.43 * s, STEEL))
-    shell = shell.subtract(_mat(body.round(t - 0.012), STEEL_DARK))  # hollow plate (2 cm)
+    # solid plate: a 1-2 cm hollow shell is thinner than the meshing cell and comes out pitted
     # neck opening and arm holes
     shell = shell.subtract(_mat(sdf.ellipsoid(_p(spec, 0, 1.45, 0.02), (0.11, 0.07, 0.1)), STEEL_DARK))
     shell = shell.subtract(_mat(sdf.sphere(_p(spec, spec.shoulder + 0.02, 1.4, -0.02), 0.085), STEEL_DARK).mirror_x())
@@ -109,23 +109,32 @@ def bracers(spec: BodySpec):
     b = la0 + (la1 - la0) * 0.92
     L = spec.limb
     br = _mat(sdf.round_cone(a, b, 0.056 * L, 0.044 * L), STEEL)
-    br = br.subtract(_mat(sdf.round_cone(a - (b - a) * 0.1, b + (b - a) * 0.1, 0.046 * L, 0.034 * L), STEEL)).paint(color=(1, 1, 1), material=STEEL)
+    br = br.paint(color=(1, 1, 1), material=STEEL)
     cuff = _mat(sdf.round_cone(b - (b - a) * 0.12, b, 0.05 * L, 0.048 * L), BRASS)
     return br.union(cuff).mirror_x()
 
 
 def tassets(spec: BodySpec):
-    """Three hanging plates over the hips (front, sides), weighted like the skirt."""
+    """Three hanging plates over the hips (front, sides) on top of the tunic skirt, weighted like it."""
+    from clothes import skirt_radius
+
     s = spec.s
     parts = []
-    hip_r = 0.19 if spec.gender == "f" else 0.18
-    for ang in (-50, 0, 50):
+    y = 0.9 * s
+    rx, rz, zc = skirt_radius(spec, y)
+    rx1, _, _ = skirt_radius(spec, y - 0.1 * s)
+    flare = math.degrees(math.atan2(rx1 - rx, 0.1 * s))  # follow the skirt's slope
+    for ang in (-55, 0, 55):
         a = math.radians(ang)
-        cx, cz = math.sin(a) * hip_r, math.cos(a) * hip_r
-        plate = _mat(sdf.box(_p(spec, cx, 0.9, cz), (0.12, 0.16 * s, 0.02), 0.008), STEEL_DARK).rotate((8, ang, 0), tuple(_p(spec, cx, 0.9, cz)))
-        parts.append(plate)
-    belt = _mat(sdf.ellipsoid(_p(spec, 0, 0.995, -0.005), (hip_r - 0.005, 0.07, 0.15)), STRAP).intersect(_slab(0.965 * s, 1.02 * s, STRAP))
-    belt = belt.subtract(_mat(sdf.ellipsoid(_p(spec, 0, 0.995, -0.005), (hip_r - 0.025, 0.07, 0.13)), STRAP))
+        cx, cz = math.sin(a) * (rx + 0.03), zc + math.cos(a) * (rz + 0.03)
+        c = (cx, y, cz)
+        plate = _mat(sdf.box(c, (0.12, 0.16 * s, 0.024), 0.008), STEEL).rotate((flare, ang, 0), c)
+        rivet = _mat(sdf.sphere((cx * 1.04, y + 0.055 * s, zc + (cz - zc) * 1.04 + 0.006), 0.012), BRASS)
+        parts += [plate, rivet]
+    by = 0.995 * s
+    brx, brz, bzc = skirt_radius(spec, by)
+    belt = _mat(sdf.ellipsoid((0, by, bzc), (brx + 0.032, 0.07, brz + 0.032)), STRAP).intersect(_slab(by - 0.03 * s, by + 0.025 * s, STRAP))
+    belt = belt.subtract(_mat(sdf.ellipsoid((0, by, bzc), (brx + 0.012, 0.07, brz + 0.012)), STRAP))
     return sdf.union(belt, *parts)
 
 
@@ -136,14 +145,12 @@ def greaves(spec: BodySpec):
     if spec.harpin:  # shin guard on the tibiotarsus, above the plumed ankle
         a = c0 + (c1 - c0) * 0.18
         b = c0 + (c1 - c0) * 0.8
-        g = _mat(sdf.round_cone(a, b, 0.07 * L, 0.05 * L), STEEL)
-        g = g.subtract(_mat(sdf.round_cone(a, b, 0.056 * L, 0.04 * L), STEEL_DARK))
+        g = _mat(sdf.round_cone(a, b, 0.07 * L, 0.05 * L), STEEL)  # solid (thin shells mesh pitted)
         g = g.intersect(_mat(sdf.plane(a + (b - a) * 0.5 + np.array([0, 0, -0.01]), (0, 0, -1)), STEEL))  # front half
     else:
         a = c0 + (c1 - c0) * 0.06
         b = c0 + (c1 - c0) * 0.62
         g = _mat(sdf.round_cone(a, b, 0.078 * L, 0.07 * L), STEEL)
-        g = g.subtract(_mat(sdf.round_cone(a, b, 0.064 * L, 0.058 * L), STEEL_DARK))
         g = g.intersect(_mat(sdf.plane(c0 + np.array([0, 0, -0.01]), (0, 0, -1)), STEEL))
     knee = _mat(sdf.sphere(c0 + np.array([0, 0.0, 0.05]), 0.045 * L), STEEL)
     knee = knee.subtract(_mat(sdf.sphere(c0 + np.array([0, 0.0, 0.02]), 0.05 * L), STEEL_DARK))

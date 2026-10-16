@@ -193,11 +193,12 @@ def gable_roof(w, d, h, overhang=0.35, thick=0.16, tex="tiles"):
     half = d / 2 + overhang
     slope = math.hypot(half, h)
     parts = []
-    for sgn in (1, -1):
-        slab = p3.box((W, thick, slope)).translate((0, 0, slope / 2))
-        ang = math.degrees(math.atan2(h, half))
-        slab.rotate((sgn * ang if sgn < 0 else -ang, 0, 0))
-        if sgn < 0:
+    ang = math.degrees(math.atan2(h, half))
+    for back in (False, True):
+        # slab from the ridge (origin) toward +Z, tilted down to the eave; the back one is turned 180
+        slab = p3.box((W, thick, slope)).translate((0, thick / 2, slope / 2))
+        slab.rotate((ang, 0, 0))
+        if back:
             slab.rotate((0, 180, 0))
         slab.translate((0, h, 0))
         parts.append(slab)
@@ -247,9 +248,9 @@ def house(w, d, wall_h, roof_h, wall_tex="plaster", roof_tex="tiles", plinth=0.5
         parts.append(p3.box((w + 0.25, 0.18, d + 0.25)).translate((0, top + 0.09, 0)).set_material(BEAM))
         parts.append(textured(p3.box((w + 0.1, uh, d + 0.1)).translate((0, top + 0.18 + uh / 2, 0)), T("plaster_b"), "Wall_plaster_b"))
         top = top + 0.18 + uh
-    # gables front/back
-    for z in (d / 2 - 0.06, -d / 2 + 0.06):
-        g = gable_wall(w - 0.1, roof_h * 0.92, 0.12).translate((0, top, z - 0.06))
+    # gable ends on the left/right sides (the ridge runs along X)
+    for x in (w / 2 - 0.06, -w / 2 + 0.06):
+        g = gable_wall(d - 0.1, roof_h * 0.95, 0.12).translate((0, 0, -0.06)).rotate((0, 90, 0)).translate((x, top, 0))
         parts.append(textured(g, T(wall_tex), "Wall_" + wall_tex))
     if beams:  # timber framing
         for x in (-w / 2 + 0.07, w / 2 - 0.07):
@@ -288,8 +289,9 @@ def thatched_cottage(w=5.2, d=4.6):
     parts = []
     parts.append(textured(p3.box((w, 0.45, d)).translate((0, 0.225, 0)), T("stone"), "Stone"))
     parts.append(textured(p3.box((w - 0.1, 2.2, d - 0.1)).translate((0, 0.45 + 1.1, 0)), T("planks"), "Wall_planks"))
-    for z in (d / 2 - 0.06, -d / 2 + 0.06):
-        parts.append(textured(gable_wall(w - 0.1, 1.9, 0.12).translate((0, 2.65, z - 0.06)), T("planks"), "Wall_planks"))
+    for x in (w / 2 - 0.06, -w / 2 + 0.06):
+        g = gable_wall(d - 0.1, 1.95, 0.12).translate((0, 0, -0.06)).rotate((0, 90, 0)).translate((x, 2.65, 0))
+        parts.append(textured(g, T("planks"), "Wall_planks"))
     roof = gable_roof(w, d, 2.0, overhang=0.5, thick=0.38, tex="thatch").translate((0, 2.62, 0))
     parts.append(roof)
     parts.append(door(0.95, 1.8).translate((w * 0.15, 0.43, d / 2 + 0.03)))
