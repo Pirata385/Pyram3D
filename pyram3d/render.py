@@ -45,6 +45,7 @@ class _Batch:
         self.C = []   # (T,3,4) vertex colors (linear)
         self.M = []   # (T,) material id
         self.E = []   # (T,3) bool: is polygon edge (for wireframe)
+        self.F = []   # (T,) bool: triangle belongs to a flat mesh (ground/water planes don't cast shadows)
         self.mats = []
 
     def finish(self):
@@ -120,6 +121,7 @@ def _collect(scene, time: float | None, animation=None):
             b.C.append(C)
             b.M.append(M)
             b.E.append(E)
+            b.F.append(np.full(len(P), bool(mesh.size[1] < 1e-4)))
         return b
     finally:
         if snap is not None:
@@ -289,67 +291,91 @@ def render(scene, path=None, width: int = 800, height: int = 600, view="three_qu
     ground_y = min(float(P[:, :, 1].min()), float(scene.bounds()[0][1])) if len(P) else 0.0
     use_ground = ground and style in ("realistic", "clay", "toon") and len(P)
 
-    # rasterize
-    VP = proj @ view_m
-    clip = np.concatenate([P, np.ones(P.shape[:2] + (1,))], axis=2) @ VP.T
-    tri_id, bary, depth = _rasterize(clip, W, H)
-
-    bg = _background(H, W, background if background is not None else scene.background, style)
-    img = bg.copy()
-    mask = tri_id >= 0
-    hdr = np.zeros((H, W, 3)) if bloom > 0 and style != "normals" else None
-
     # lights
     lights = _scene_lights(scene)
     key = next((l for l in lights if l["type"] == "directional" and l["shadow"]), None)
     shadow_fn = None
     if shadows and key is not None and len(P) and style in ("realistic", "clay", "toon"):
-        shadow_fn = _shadow_map(P, key["dir"], 1024 if ss <= 2 else 1536)
+        flat = np.concatenate(batch.F) if batch.F else np.zeros(len(P), bool)
+        casters = P[~flat] if (~flat).any() else P
+        extent = float(np.ptp(casters.reshape(-1, 3), axis=0).max())
+        shadow_fn = _shadow_map(casters, key["dir"], 2048 if extent > 12 else (1024 if ss <= 2 else 1536))
 
-    if mask.any():
-        t = tri_id[mask]
-        bw = bary[mask]
+    # split opaque / alpha-blended triangles (blended ones are composited in a second pass)
+    blend = np.zeros(len(P), dtype=bool)
+    if style in ("realistic", "toon") and len(P):
+        for k in np.unique(M):
+            mt = mats[k]
+            if mt is not None and mt.resolved_alpha_mode == "BLEND":
+                blend[M == k] = True
+    VP = proj @ view_m
+    clip = np.concatenate([P, np.ones(P.shape[:2] + (1,))], axis=2) @ VP.T
+
+    def raster(sel):
+        ids = np.flatnonzero(sel)
+        tid, bc, dp = _rasterize(clip[ids], W, H)
+        tid = np.where(tid >= 0, ids[np.maximum(tid, 0)], -1)
+        return tid, bc, dp
+
+    tri_id, bary, depth = raster(~blend)
+    bg = _background(H, W, background if background is not None else scene.background, style)
+    img = bg.copy()
+    mask = tri_id >= 0
+    hdr = np.zeros((H, W, 3)) if bloom > 0 and style != "normals" else None
+
+    def shade(tid, bc, msk):
+        t = tid[msk]
+        bw = bc[msk]
         pos = np.einsum("nk,nkj->nj", bw, P[t])
         nrm = m3.normalize(np.einsum("nk,nkj->nj", bw, N[t]))
         uv = np.einsum("nk,nkj->nj", bw, UV[t])
         vcol = np.einsum("nk,nkj->nj", bw, C[t])
         view_dir = m3.normalize(eye - pos)
-        # double-sided: flip normals facing away
-        back = np.einsum("ij,ij->i", nrm, view_dir) < 0
+        back = np.einsum("ij,ij->i", nrm, view_dir) < 0  # double-sided: flip normals facing away
         nrm[back] = -nrm[back]
-        mid = M[t]
-        base, rough, metal, emis, unlit, alpha = _material_inputs(mats, mid, uv, vcol, style)
+        base, rough, metal, emis, unlit, alpha = _material_inputs(mats, M[t], uv, vcol, style)
         if style == "normals":
-            col = nrm * 0.5 + 0.5
-            col = m3.srgb_to_linear(col)
+            col = m3.srgb_to_linear(nrm * 0.5 + 0.5)
         else:
             sh = shadow_fn(pos, nrm) if shadow_fn is not None else np.ones(len(pos))
             col = _shade(pos, nrm, view_dir, base, rough, metal, lights, sh, style, scene.ambient)
             col = col + emis
             col = np.where(unlit[:, None], base + emis, col)
         col = col * exposure
-        if hdr is not None:
-            hdr[mask] = col
+        lin = col.copy()
         if style == "wire":
             e = E[t]
-            # distance to real polygon edges in barycentric space
             dmin = np.full(len(bw), 9.0)
-            for k in range(3):
-                # edge k connects corner k and k+1 -> opposite barycentric is (k+2)%3
-                dk = np.where(e[:, k], bw[:, (k + 2) % 3], 9.0)
-                dmin = np.minimum(dmin, dk)
-            px_scale = _bary_pixel_scale(tri_id, bary)[mask]
+            for k in range(3):  # edge k joins corners k, k+1 -> its opposite barycentric is (k+2)%3
+                dmin = np.minimum(dmin, np.where(e[:, k], bw[:, (k + 2) % 3], 9.0))
+            px_scale = _bary_pixel_scale(tid, bc)[msk]
             line = dmin * px_scale < 0.9 * ss
             col = np.where(line[:, None], np.array([0.02, 0.02, 0.02]), col)
         col = _tonemap(col)
         if fog > 0:
             f = 1 - np.exp(-fog * np.linalg.norm(pos - eye, axis=1))
-            col = col * (1 - f[:, None]) + img[mask] * f[:, None]
-        a = np.clip(alpha, 0, 1)[:, None]
+            col = col * (1 - f[:, None]) + bg[msk] * f[:, None]
+        return col, np.clip(alpha, 0, 1), lin
+
+    if mask.any():
+        col, alpha, lin = shade(tri_id, bary, mask)
+        if hdr is not None:
+            hdr[mask] = lin
+        a = alpha[:, None]
         img[mask] = col * a + img[mask] * (1 - a)
 
     if use_ground:
         img = _ground_shadow(img, mask, cam_w, proj, W, H, ground_y, shadow_fn, lo, hi, style)
+
+    if blend.any():  # nearest transparent layer over the opaque image
+        t_id, t_bary, t_depth = raster(blend)
+        tmask = (t_id >= 0) & (t_depth < depth)
+        if tmask.any():
+            col, alpha, lin = shade(t_id, t_bary, tmask)
+            a = alpha[:, None]
+            img[tmask] = col * a + img[tmask] * (1 - a)
+            if hdr is not None:
+                hdr[tmask] = hdr[tmask] * (1 - a) + lin * a
 
     if style == "toon" and mask.any():
         img = _outline(img, depth, tri_id, ss)
@@ -543,7 +569,7 @@ def _shadow_map(P, light_dir, size):
     pts = P.reshape(-1, 3)
     up = (0, 0, 1) if abs(light_dir[1]) > 0.99 else (0, 1, 0)
     center = (pts.min(0) + pts.max(0)) / 2
-    radius = max(np.linalg.norm(pts.max(0) - pts.min(0)) / 2, 1e-3) * 1.6
+    radius = max(np.linalg.norm(pts.max(0) - pts.min(0)) / 2, 1e-3) * 1.15
     lw = m3.look_at_matrix(center - light_dir * radius * 3, center, up)
     lv = np.linalg.inv(lw)
     proj = m3.orthographic_matrix(radius, radius, 0.01, radius * 8)

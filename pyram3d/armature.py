@@ -128,6 +128,10 @@ class Skeleton:
              bone_filter=None) -> Mesh:
         """Compute automatic skin weights for `mesh` (vertices in world/rest space).
 
+        If the mesh came from SDF parts tagged with `bone="BoneName"`, those
+        parts follow their bone exactly (blended only at the seams); untagged
+        parts fall back to distance-based weights.
+
         rigid=True      : each vertex follows exactly one bone (robots, mechanical parts)
         smooth          : weight smoothing iterations across the mesh surface
         falloff         : higher = sharper transitions between bones
@@ -178,6 +182,20 @@ class Skeleton:
                     avg = acc / np.maximum(deg, 1)[:, None]
                     W = 0.5 * W + 0.5 * np.where(deg[:, None] > 0, avg, W)
                 W[~np.isfinite(D)] = 0.0
+        parts = mesh.extras.get("bone_parts")
+        if parts is not None and parts[1].shape[0] == len(P):
+            names, PW = parts
+            name_to_idx = {b.name: i for i, b in enumerate(self.bones)}
+            missing = [n for n in names if n not in name_to_idx]
+            if missing:
+                raise KeyError(f"SDF parts reference unknown bones {missing}")
+            WP = np.zeros_like(W)
+            for j, n in enumerate(names):
+                WP[:, name_to_idx[n]] = PW[:, j]
+            owned = WP.sum(axis=1) > 0
+            if rigid:
+                WP[owned] = (WP[owned] == WP[owned].max(axis=1, keepdims=True)).astype(float)
+            W = np.where(owned[:, None], WP, W / np.maximum(W.sum(axis=1, keepdims=True), 1e-12))
         joints, weights = _top_k(W, max_influences)
         mesh.joints = joints
         mesh.weights = weights

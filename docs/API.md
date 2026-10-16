@@ -217,7 +217,7 @@ Base class: callable mapping points (N,3) -> signed distances (N,).
 - `round(self, radius: 'float') -> "'SDF'"`
 - `shell(self, thickness: 'float') -> "'SDF'"` — Hollow shell (onion) of the given thickness.
 - `displace(self, amount: 'float' = 0.02, scale: 'float' = 4.0, octaves: 'int' = 4, seed: 'int' = 0, func: 'Callable[[np.ndarray], np.ndarray] | None' = None) -> "'SDF'"` — Add noise (or func(points)->(N,)) to the surface: bumps, rock roughness, bark.
-- `paint(self, color=None, material=None) -> "'SDF'"` — Set the color/material of every leaf of this shape.
+- `paint(self, color=None, material=None, bone=None) -> "'SDF'"` — Set the color/material/bone of every leaf of this shape.
 - `to_mesh(self, resolution: 'int' = 96, bounds=None, padding: 'float' = 0.05, smooth: 'bool' = True, name: 'str' = 'SDFMesh', project_iterations: 'int' = 2, colors: 'bool | None' = None, default_color='#cccccc') -> 'Mesh'` — Polygonize with naive surface nets (quad mesh).
 
 ### class `Sphere(center=(0, 0, 0), radius: 'float' = 0.5, **kw)`
@@ -638,6 +638,7 @@ Characters face +Z. Their LEFT side is +X, RIGHT side is -X.
 - `tail(self, bone: 'Node | str') -> 'np.ndarray'`
 - `index(self, bone: 'Node | str') -> 'int'`
 - `reset_pose(self)` — Return every bone to the rest pose.
+- `bind_root_matrix(self) -> 'np.ndarray'` — Armature root transform the mesh was bound with (moving the root later moves the character).
 - `rest_world_matrices(self) -> 'np.ndarray'`
 - `inverse_bind_matrices(self) -> 'np.ndarray'`
 - `joint_matrices(self) -> 'np.ndarray'` — Current skinning matrices (world-space pose @ inverse bind).
@@ -666,6 +667,56 @@ height_func: optional f(x, z) -> heights (meters), overrides noise
 colors    : True = automatic grass/rock/snow/sand vertex colors; dict to customize
             {"sand": "#..", "grass": "#..", "rock": "#..", "snow": "#..", "water_level": 0.0}
 
+## Physics & effects (pyram3d.physics)
+
+Simple physics simulations baked into keyframes / shape keys, so they play in any engine.
+
+  RigidWorld   falling, bouncing, tumbling spheres and boxes (ground + sphere contacts)
+  cloth_drape  drop a cloth onto colliders (static result: tablecloths, flags at rest, blankets)
+  cloth_simulate  the same, baked as an animation (shape keys + weight keys)
+  particles    looping effects: fire, smoke, sparks, fountain, snow, rain, magic
+
+All units are meters / seconds. Results are regular nodes, keyframes and shape keys,
+which export to glTF and FBX.
+
+### class `Body(node: 'Node', shape: 'str', half: 'np.ndarray', mass: 'float', vel: 'np.ndarray', ang: 'np.ndarray', fixed: 'bool' = False, inv_inertia: 'np.ndarray' = <factory>) -> None`
+
+Body(node: 'Node', shape: 'str', half: 'np.ndarray', mass: 'float', vel: 'np.ndarray', ang: 'np.ndarray', fixed: 'bool' = False, inv_inertia: 'np.ndarray' = <factory>)
+
+- `Body.radius` (property)
+
+### class `RigidWorld(gravity: 'float' = -9.81, ground: 'float | None' = 0.0, restitution: 'float' = 0.35, friction: 'float' = 0.5)`
+
+Minimal rigid-body solver (impulses + position correction).
+
+world = p3.physics.RigidWorld()
+for i in range(10):
+    n = scene.add(p3.box(0.3), position=(0, 1 + i * 0.4, 0), rotation=(i * 20, i * 7, 0))
+    world.add(n, "box")
+world.simulate(scene.animation("Fall"), duration=3)
+
+- `add(self, node: 'Node', shape: 'str' = 'auto', mass: 'float' = 1.0, velocity=(0, 0, 0), angular_velocity=(0, 0, 0), fixed: 'bool' = False, size=None) -> 'Body'` — shape: "sphere" | "box" | "auto" (from the node's mesh bounds).
+- `step(self, dt: 'float')`
+- `simulate(self, anim, duration: 'float' = 3.0, fps: 'int' = 30, substeps: 'int' = 10) -> "'RigidWorld'"` — Run the simulation and bake position/rotation keys into `anim` (start pose at t=0).
+
+### `cloth_drape(mesh: 'Mesh', colliders=(), pinned=None, steps: 'int' = 300, dt: 'float' = 0.016666666666666666, gravity: 'float' = -9.81, iterations: 'int' = 8, thickness: 'float' = 0.01, ground: 'float | None' = 0.0, damping: 'float' = 0.02) -> 'Mesh'`
+
+Simulate a cloth (a subdivided plane works best) falling onto colliders; returns the draped mesh.
+
+colliders: SDF objects (pyram3d.sdf shapes) the cloth must not penetrate.
+pinned   : vertex indices that stay fixed (flag/curtain attachment points).
+
+### `cloth_simulate(mesh: 'Mesh', anim, node: 'Node', colliders=(), pinned=None, duration: 'float' = 2.0, keyframes: 'int' = 12, steps_per_second: 'int' = 120, **kw) -> 'Mesh'`
+
+Bake a cloth simulation as shape keys + morph-weight keyframes on `node` (exports to glTF and FBX).
+
+### `particles(scene, anim, kind: 'str' = 'fire', position=(0, 0, 0), duration: 'float' = 2.0, seed: 'int' = 0, fps: 'int' = 15, parent: 'Node | None' = None, **overrides) -> 'Node'`
+
+Create a looping particle effect as animated nodes (one shared mesh, instanced).
+
+kind: fire | smoke | sparks | fountain | snow | rain | magic. Any preset key can be
+overridden (count, life, speed, spread, gravity, size, color, emissive, radius, alpha).
+
 ## Preview rendering (pyram3d.render)
 
 Render the scene and optionally save a PNG. Returns the (H, W, 3) uint8 image.
@@ -674,6 +725,10 @@ view   : "front" | "back" | "left" | "right" | "top" | "three_quarter" | directi
 camera : a camera Node from the scene (overrides view)
 target/distance: override auto-framing (look at point, distance from it)
 time   : animation time in seconds (poses rigs / animated nodes)
+bloom  : glow strength around bright/emissive pixels (0 = off)
+fog    : atmospheric fog density per meter (e.g. 0.02 for landscapes)
+vignette: darkening of the image corners (0 = off)
+exposure: brightness multiplier before tone mapping
 
 ## Saving (pyram3d.project)
 
@@ -945,7 +1000,7 @@ Stylized conifer: stacked cones on a trunk.
 
 ### `bush(size: 'float' = 1.0, color='#4a7d34', seed: 'int' = 0, berries: 'str | None' = None, name: 'str' = 'Bush') -> 'Mesh'`
 
-### `rock(size: 'float' = 1.0, seed: 'int' = 0, roughness: 'float' = 0.25, flatness: 'float' = 0.7, low_poly: 'bool' = True, color='#8a857e', name: 'str' = 'Rock') -> 'Mesh'`
+### `rock(size: 'float' = 1.0, seed: 'int' = 0, roughness: 'float' = 0.25, flatness: 'float' = 0.7, low_poly: 'bool' = True, color='#8a857e', material=None, name: 'str' = 'Rock') -> 'Mesh'`
 
 Boulder. low_poly=True gives a faceted game-art rock; False a smooth, detailed one.
 

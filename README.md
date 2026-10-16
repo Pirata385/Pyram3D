@@ -40,6 +40,10 @@ O agente segue o fluxo descrito em [`CLAUDE.md`](CLAUDE.md): cria `projects/<nom
 - **Animação** por keyframes (posição, rotação, escala, blend shapes) com interpolação linear, degrau ou suave.
 - **Rigging**: esqueletos, pesos automáticos, skinning; personagens humanoides e quadrúpedes prontos, com ciclos
   de andar, correr, idle, pular e acenar (nomes de ossos no padrão Humanoid do Unity).
+- **Simulações** gravadas como animação (tocam em qualquer engine): corpos rígidos caindo/quicando, tecido
+  caindo sobre objetos (toalhas, cobertores, bandeiras) e partículas em loop (fogo, fumaça, faíscas, chafariz,
+  neve, chuva, magia).
+- **Efeitos de imagem** na prévia: bloom (brilho), neblina, vinheta, exposição.
 - **Mundos**: terrenos com ruído, ilhas, terraços, pintura automática (areia/grama/rocha/neve), água e
   espalhamento de objetos.
 - **Geradores**: árvores, pinheiros, palmeiras, arbustos, rochas, grama, flores, cogumelos, cactos, prédios,
@@ -69,14 +73,15 @@ Linha de comando: `python -m pyram3d info|render|convert|viewer|check|run ...`
 pyram3d/            biblioteca (mesh, primitives, sdf, sculpt, material, scene, animation,
                     armature, terrain, render, viewer, importer, export/{gltf,fbx,obj}, generators/)
 projects/           modelos criados para você (um diretório por projeto)
-examples/           scripts de exemplo
+examples/           scripts de exemplo (vila na ilha, lanterna, robô com rig próprio)
 docs/API.md         referência completa da API (gerada automaticamente)
 tests/              testes (python -m pytest -q)
 ```
 
 ## Limitações atuais
 
-Simulação de fluidos/fumaça, tecido animado por física, renderização por path tracing, desdobramento automático
-de UV e decimação/retopologia ainda não existem. Veja o roadmap em `docs/ROADMAP.md`.
+Simulação de fluidos e fumaça volumétrica, renderização por path tracing, desdobramento automático de UV,
+decimação/retopologia, bevel em arestas selecionadas e IK ainda não existem. A física é simples (boa para
+efeitos e poses, não para engenharia). Veja o roadmap em `docs/ROADMAP.md`.
 
 Licença: MIT.

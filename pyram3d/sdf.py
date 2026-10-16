@@ -28,6 +28,7 @@ class SDF:
 
     color = None
     material = None
+    bone = None
 
     def __call__(self, p: np.ndarray) -> np.ndarray:
         return self.dist(np.asarray(p, dtype=np.float64))
@@ -95,13 +96,15 @@ class SDF:
         """Add noise (or func(points)->(N,)) to the surface: bumps, rock roughness, bark."""
         return Displaced(self, amount, scale, octaves, seed, func)
 
-    def paint(self, color=None, material=None) -> "SDF":
-        """Set the color/material of every leaf of this shape."""
+    def paint(self, color=None, material=None, bone=None) -> "SDF":
+        """Set the color/material/bone of every leaf of this shape."""
         for leaf in self.leaves():
             if color is not None:
                 leaf.color = color
             if material is not None:
                 leaf.material = material
+            if bone is not None:
+                leaf.bone = bone
         return self
 
     # ---- meshing
@@ -132,8 +135,27 @@ class SDF:
         leaves = self.leaves()
         has_color = any(l.color is not None for l in leaves)
         has_mat = any(l.material is not None for l in leaves)
-        if not (has_color or has_mat) or len(mesh.vertices) == 0:
+        has_bone = any(l.bone is not None for l in leaves)
+        if not (has_color or has_mat or has_bone) or len(mesh.vertices) == 0:
             return
+        if has_bone:
+            # per-vertex membership to named bones: soft near seams, exact inside parts
+            d = np.abs(self.leaf_dists(mesh.vertices))
+            names = sorted({l.bone for l in leaves if l.bone is not None})
+            k = max(float(mesh.size.max()) * 0.004, 1e-4)
+            dmin = d.min(axis=1, keepdims=True)
+            W = np.zeros((len(mesh.vertices), len(names)))
+            for j, leaf in enumerate(leaves):
+                if leaf.bone is not None:
+                    W[:, names.index(leaf.bone)] = np.maximum(W[:, names.index(leaf.bone)],
+                                                              np.exp(-(d[:, j] - dmin[:, 0]) / k))
+            # vertices whose nearest part has no bone get no part weights (distance fallback in bind)
+            unowned = np.ones(len(mesh.vertices), dtype=bool)
+            for j, leaf in enumerate(leaves):
+                if leaf.bone is not None:
+                    unowned &= d[:, j] > dmin[:, 0] + 1e-9
+            W[unowned] = 0.0
+            mesh.extras["bone_parts"] = (names, W)
         if has_color and colors is not False:
             d = np.abs(self.leaf_dists(mesh.vertices))  # (N, L)
             # soft blend of leaf colors near seams
@@ -170,9 +192,10 @@ class SDF:
 # ---------------------------------------------------------------------------
 
 class _Prim(SDF):
-    def __init__(self, color=None, material=None):
+    def __init__(self, color=None, material=None, bone=None):
         self.color = color
         self.material = material
+        self.bone = bone  # name of the skeleton bone this part follows (see Skeleton.bind)
 
 
 class Sphere(_Prim):

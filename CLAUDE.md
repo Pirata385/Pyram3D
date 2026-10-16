@@ -101,6 +101,9 @@ p3.character.walk_cycle(scene.animation("Walk"), hero.skeleton)   # run_cycle, i
 dog = p3.character.quadruped(length=1.0, height=0.55); dog.add_to(scene, position=(2, 0, 0))
 p3.character.quadruped_walk(scene.animation("DogWalk"), dog.skeleton)
 # custom rig: sk = p3.Skeleton(); sk.add_bone(name, head, tail, parent); sk.bind(mesh); node.skin = sk
+#   (or scene.add(p3.skinned_node(mesh, sk))). Tag SDF parts with bone="Name" → exact skinning per part:
+#   sdf.capsule(a, b, r, color=..., bone="LeftArm"); shape.paint(bone="Head"); sk.bind(mesh, rigid=True)
+#   (see examples/robot_character.py). Model characters in T-pose so limbs don't touch the body.
 
 # Worlds
 t = p3.terrain(size=80, resolution=160, height=10, island=0.8, seed=3)
@@ -114,6 +117,16 @@ p3.architecture.building() / house() / column() / fence() / stairs() / wall_segm
 p3.vehicles.car(style="sedan|hatchback|suv|pickup") (Node with Wheel_* children) / boat() / airplane()
 p3.vehicles.drive(scene.animation("Drive"), car_node, distance=10)
 p3.props.crate() / barrel() / table() / chair() / sofa() / lamp() / bookshelf() / sword() / treasure_chest()
+
+# Physics & effects (baked into keyframes / shape keys → play in any engine)
+w = p3.physics.RigidWorld(); w.add(node, "box"); w.simulate(scene.animation("Fall"), duration=3)
+draped = p3.physics.cloth_drape(p3.plane(1.8, 36).translate((0, 1.1, 0)), [sdf.box((0, 0.6, 0), (1.4, 0.3, 0.8))])
+p3.physics.particles(scene, scene.animation("FX"), "fire", position=(0, 0, 0))  # smoke sparks fountain snow rain magic
+p3.flatten(terrain_mesh, (x, z), radius=8)   # level ground for buildings; p3.height_at(terrain_mesh, x, z)
+# colliders for cloth must be thick SDFs (≥ 0.2 m) or the cloth can tunnel through
+
+# Rendering options: style="realistic|toon|clay|wire|normals", bloom=0.6, fog=0.02, vignette=0.25,
+# camera=scene.find("Camera"), view="front|right|back|left|top|three_quarter"|(x, y, z), time=1.2
 
 # Import existing models to edit/convert
 scene = p3.load("model.glb")   # .glb/.gltf/.obj
@@ -140,6 +153,8 @@ CLI: `python -m pyram3d info|render|convert|viewer|check|run …` (e.g. `convert
 - FBX is written as binary FBX 7.4 without the Autodesk SDK; it is validated by importing into
   Blender. Materials are exported as Phong with PBR hints; for exact PBR prefer glTF/GLB.
 - glTF output passes the Khronos glTF-Validator with 0 errors.
-- Not implemented yet: fluid/smoke simulation, physics-based cloth animation, path-traced renders,
-  UV unwrapping beyond projections, retopology/decimation. Say so when a request needs them.
+- Physics is simple and baked: rigid bodies collide with the ground and (as spheres) with each other;
+  cloth is Verlet mass-spring against SDF colliders; particles are instanced animated nodes.
+- Not implemented yet (see docs/ROADMAP.md): fluid/volumetric smoke simulation, path-traced renders,
+  automatic UV unwrapping, decimation/retopology, bevel on selected edges, IK. Say so when a request needs them.
 - If you change the library API, regenerate the docs: `python tools/gen_api_docs.py`.

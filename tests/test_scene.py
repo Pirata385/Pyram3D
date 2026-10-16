@@ -101,3 +101,19 @@ def test_particles_loop(tmp_path):
     for c in a.channels:
         assert np.allclose(c.values[0], c.values[-1], atol=1e-6)  # seamless loop
     s.export(tmp_path / "fx.glb")
+
+
+def test_sdf_bone_tags_give_exact_skinning():
+    from pyram3d import sdf
+    body = sdf.box((0, 1, 0), (0.4, 0.6, 0.3), bone="Body")
+    arm = sdf.capsule((0.25, 1.2, 0), (0.6, 1.2, 0), 0.05, bone="Arm")
+    mesh = body.smooth_union(arm, 0.02).to_mesh(64)
+    sk = p3.Skeleton()
+    b = sk.add_bone("Body", (0, 0.7, 0), (0, 1.3, 0))
+    sk.add_bone("Arm", (0.25, 1.2, 0), (0.6, 1.2, 0), b)
+    sk.bind(mesh, rigid=True)
+    sk.bone("Arm").set_rotation((0, 0, 45))
+    moved = np.linalg.norm(sk.pose_vertices(mesh) - mesh.vertices, axis=1)
+    torso = (np.abs(mesh.vertices[:, 0]) < 0.15)
+    assert moved[torso].max() < 1e-9          # body untouched
+    assert moved[mesh.vertices[:, 0] > 0.5].min() > 0.1  # arm tip follows the bone

@@ -34,12 +34,14 @@ h1 { font-family: var(--display); font-weight: 700; font-size: 1.15rem; margin: 
 .stats b { color: var(--fg); font-weight: 500; }
 #stage { position: relative; flex: 1; min-height: 240px; background: linear-gradient(var(--stage-top), var(--stage-bottom)); }
 #stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+[hidden] { display: none !important; }
 #status { position: absolute; inset: 0; display: grid; place-items: center; font-family: var(--mono); font-size: 0.85rem; color: var(--muted); pointer-events: none; }
 .controls { padding-block: 10px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; border-top: 1px solid var(--line); background: var(--panel); }
 .controls label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
 button, select { font: 500 0.85rem var(--body); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 7px 12px; min-height: 36px; cursor: pointer; }
 button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
 button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.group { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .spacer { flex: 1; }
 .files { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); overflow-wrap: anywhere; min-width: 0; }
 </style>
@@ -49,9 +51,11 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); o
 </header>
 <div id="stage"><div id="status">Loading model…</div></div>
 <div class="controls">
-  <label for="clip">Animation</label>
-  <select id="clip" disabled><option>none</option></select>
-  <button id="play" type="button" aria-pressed="true" disabled>Pause</button>
+  <span id="animctl" class="group" hidden>
+    <label for="clip">Animation</label>
+    <select id="clip"></select>
+    <button id="play" type="button" aria-pressed="true">Pause</button>
+  </span>
   <button id="spin" type="button" aria-pressed="false">Turntable</button>
   <button id="wire" type="button" aria-pressed="false">Wireframe</button>
   <button id="reset" type="button">Reset view</button>
@@ -124,6 +128,14 @@ new GLTFLoader().parse(b64ToBuffer(MODEL_B64), "", (gltf) => {
   const dist = radius / Math.sin(THREE.MathUtils.degToRad(camera.fov / 2)) * 1.05;
   const dir = new THREE.Vector3(0.75, 0.45, 1).normalize();
   home = { pos: center.clone().addScaledVector(dir, dist), target: center.clone() };
+  if (gltf.cameras && gltf.cameras.length) {  // start from the scene's own camera when it has one
+    const cam = gltf.cameras[0];
+    cam.updateWorldMatrix(true, false);
+    const p = new THREE.Vector3().setFromMatrixPosition(cam.matrixWorld);
+    const fwd = new THREE.Vector3(0, 0, -1).transformDirection(cam.matrixWorld);
+    const along = Math.max(center.clone().sub(p).dot(fwd), radius * 0.1);
+    home = { pos: p, target: p.clone().addScaledVector(fwd, along) };
+  }
   camera.near = dist / 200; camera.far = dist * 50; camera.updateProjectionMatrix();
   resetView();
   const ground = new THREE.Mesh(new THREE.CircleGeometry(radius * 3, 64), new THREE.ShadowMaterial({ opacity: 0.18 }));
@@ -140,7 +152,7 @@ new GLTFLoader().parse(b64ToBuffer(MODEL_B64), "", (gltf) => {
     const opts = clips.map((c, i) => `<option value="${i}">${c.name || "Clip " + (i + 1)}</option>`);
     if (clips.length > 1) opts.unshift(`<option value="all">All together</option>`);
     sel.innerHTML = opts.join("");
-    sel.disabled = false; document.getElementById("play").disabled = false;
+    document.getElementById("animctl").hidden = false;
     playClip(clips.length > 1 ? "all" : 0);
   }
   statusEl.hidden = true;
