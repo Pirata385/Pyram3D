@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+.venv/
+# large duplicates of the showcase (rebuild with: python examples/village.py)
+examples/output/village/village.gltf
+examples/output/village/village_viewer.html
