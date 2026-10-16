@@ -251,8 +251,9 @@ def render(scene, path=None, width: int = 800, height: int = 600, view="three_qu
            shadows: bool = True, ground: bool = True, supersample: int = 2, yfov: float = 35.0,
            target=None, distance: float | None = None, bloom: float = 0.6, fog: float = 0.0,
            vignette: float = 0.25, exposure: float = 1.0, pixel: int = 1, outline: bool | None = None,
-           rim: float | None = None) -> np.ndarray:
-    """Render the scene and optionally save a PNG. Returns the (H, W, 3) uint8 image.
+           rim: float | None = None, alpha: bool = False) -> np.ndarray:
+    """Render the scene and optionally save a PNG. Returns the (H, W, 3) uint8 image
+    ((H, W, 4) RGBA when ``alpha=True``).
 
     view   : "front" | "back" | "left" | "right" | "top" | "three_quarter" | direction vector
     camera : a camera Node from the scene (overrides view)
@@ -265,11 +266,13 @@ def render(scene, path=None, width: int = 800, height: int = 600, view="three_qu
     pixel  : > 1 renders at 1/pixel resolution and upscales with hard pixels (pixel-art preview)
     outline: dark silhouette/crease lines (default on for "toon")
     rim    : rim-light strength (default 0.6 for "toon", 0 otherwise) — Hades-like edge glow
+    alpha  : transparent background: returns RGBA where alpha is the object coverage (sprites,
+             icons, compositing). The ground shadow catcher is disabled in this mode.
     """
     if pixel > 1:
         small = render(scene, None, max(width // pixel, 8), max(height // pixel, 8), view, camera, style, time,
                        animation, background, shadows, ground, 1, yfov, target, distance, bloom, fog, vignette,
-                       exposure, 1, outline, rim)
+                       exposure, 1, outline, rim, alpha)
         big = np.repeat(np.repeat(small, pixel, axis=0), pixel, axis=1)
         if path is not None:
             write_png(path, big)
@@ -313,7 +316,7 @@ def render(scene, path=None, width: int = 800, height: int = 600, view="three_qu
 
     # ground plane (shadow catcher)
     ground_y = min(float(P[:, :, 1].min()), float(scene.bounds()[0][1])) if len(P) else 0.0
-    use_ground = ground and style in ("realistic", "clay", "toon") and len(P)
+    use_ground = ground and not alpha and style in ("realistic", "clay", "toon") and len(P)
 
     # lights
     lights = _scene_lights(scene)
@@ -384,12 +387,14 @@ def render(scene, path=None, width: int = 800, height: int = 600, view="three_qu
             col = col * (1 - f[:, None]) + bg[msk] * f[:, None]
         return col, np.clip(alpha, 0, 1), lin
 
+    coverage = np.zeros((H, W))
     if mask.any():
-        col, alpha, lin = shade(tri_id, bary, mask)
+        col, a_op, lin = shade(tri_id, bary, mask)
         if hdr is not None:
             hdr[mask] = lin
-        a = alpha[:, None]
+        a = a_op[:, None]
         img[mask] = col * a + img[mask] * (1 - a)
+        coverage[mask] = a_op
 
     if use_ground:
         img = _ground_shadow(img, mask, cam_w, proj, W, H, ground_y, shadow_fn, lo, hi, style)
@@ -398,9 +403,10 @@ def render(scene, path=None, width: int = 800, height: int = 600, view="three_qu
         t_id, t_bary, t_depth = raster(blend)
         tmask = (t_id >= 0) & (t_depth < depth)
         if tmask.any():
-            col, alpha, lin = shade(t_id, t_bary, tmask)
-            a = alpha[:, None]
+            col, a_tr, lin = shade(t_id, t_bary, tmask)
+            a = a_tr[:, None]
             img[tmask] = col * a + img[tmask] * (1 - a)
+            coverage[tmask] = coverage[tmask] + a_tr * (1 - coverage[tmask])
             if hdr is not None:
                 hdr[tmask] = hdr[tmask] * (1 - a) + lin * a
 
@@ -426,7 +432,13 @@ def render(scene, path=None, width: int = 800, height: int = 600, view="three_qu
         d = np.hypot((xx / W - 0.5) * 2, (yy / H - 0.5) * 2) / math.sqrt(2)
         img = img * (1 - vignette * np.clip(d - 0.35, 0, 1) ** 1.5 / 0.65 ** 1.5)[:, :, None]
 
-    out = downsample(img, ss) if ss > 1 else img
+    if alpha:  # premultiply, filter, un-premultiply so edges don't pick up the background color
+        rgba = np.concatenate([np.clip(img, 0, 1) * coverage[..., None], coverage[..., None]], axis=2)
+        out = downsample(rgba, ss) if ss > 1 else rgba
+        a = out[..., 3:4]
+        out = np.concatenate([np.where(a > 1e-6, out[..., :3] / np.maximum(a, 1e-6), 0.0), a], axis=2)
+    else:
+        out = downsample(img, ss) if ss > 1 else img
     out8 = to_uint8(np.clip(out, 0, 1))
     if path is not None:
         write_png(path, out8)

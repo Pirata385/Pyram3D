@@ -70,3 +70,19 @@ def test_split_mesh_and_sockets():
     sock = hero.skeleton.add_socket("Socket_Weapon_R", "RightHand", (-0.78, 1.45, 0))
     hero.skeleton.bone("RightUpperArm").set_rotation((0, 0, -60))  # right arm: -Z raises it
     assert sock.world_position()[1] > 1.6  # the socket follows the raised arm
+
+
+def test_transfer_weights_follows_source():
+    sk = p3.Skeleton("Rig")
+    sk.add_bone("Root", (0, 0, 0), (0, 0.5, 0))
+    sk.add_bone("Top", (0, 0.5, 0), (0, 1, 0), parent="Root")
+    body = p3.cylinder(0.1, 1.0, rings=10).translate((0, 0.5, 0))
+    sk.bind(body, rigid=True)
+    sleeve = p3.cylinder(0.13, 0.9, rings=8).translate((0, 0.5, 0))
+    sk.transfer_weights(sleeve, body)
+    top = sleeve.vertices[:, 1] > 0.8
+    bottom = sleeve.vertices[:, 1] < 0.2
+    dom = sleeve.joints[np.arange(len(sleeve.joints)), np.argmax(sleeve.weights, axis=1)]
+    assert (dom[top] == sk.index("Top")).all()
+    assert (dom[bottom] == sk.index("Root")).all()
+    assert np.allclose(sleeve.weights.sum(axis=1), 1.0)

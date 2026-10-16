@@ -201,6 +201,38 @@ class Skeleton:
         mesh.weights = weights
         return mesh
 
+    def transfer_weights(self, mesh: Mesh, source: Mesh, k: int = 3, verts=None) -> Mesh:
+        """Copy skin weights from `source` (e.g. the body) to `mesh` (clothes, armor, hair).
+
+        Each vertex blends the weights of its `k` nearest source vertices (inverse distance), so
+        a garment modeled over the body deforms exactly like the skin under it. `verts` limits
+        the transfer to a vertex selection (others keep their weights; call bind() first then).
+        """
+        if source.joints is None:
+            raise ValueError("source mesh has no skin weights")
+        P = mesh.vertices if verts is None else mesh.vertices[verts]
+        S = source.vertices
+        nb = len(self.bones)
+        W = np.zeros((len(P), nb))
+        src_full = np.zeros((len(S), nb))
+        np.add.at(src_full, (np.arange(len(S))[:, None].repeat(4, 1), source.joints), source.weights)
+        step = max(1, 4_000_000 // max(len(S), 1))
+        for i in range(0, len(P), step):
+            d2 = ((P[i:i + step, None, :] - S[None, :, :]) ** 2).sum(-1)
+            idx = np.argpartition(d2, min(k, len(S) - 1), axis=1)[:, :k]
+            dk = np.take_along_axis(d2, idx, axis=1)
+            w = 1.0 / (np.sqrt(dk) + 1e-4)
+            w /= w.sum(axis=1, keepdims=True)
+            W[i:i + step] = np.einsum("nk,nkb->nb", w, src_full[idx])
+        joints, weights = _top_k(W, 4)
+        if verts is None or mesh.joints is None:
+            if verts is not None:
+                raise ValueError("bind() the mesh before a partial transfer")
+            mesh.joints, mesh.weights = joints, weights
+        else:
+            mesh.joints[verts], mesh.weights[verts] = joints, weights
+        return mesh
+
     def bind_skirt(self, mesh: Mesh, mask=None, hips: str = "Hips", left: str = "LeftUpperLeg",
                    right: str = "RightUpperLeg", top: float | None = None, bottom: float | None = None,
                    influence: float = 0.8, side_blend: float | None = None) -> Mesh:

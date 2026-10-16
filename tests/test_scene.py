@@ -59,6 +59,19 @@ def test_render_produces_image(tmp_path):
     assert abs(center - corner).sum() > 30  # the sphere is visible
 
 
+def test_render_alpha_background(tmp_path):
+    s = p3.Scene()
+    s.add(p3.uv_sphere(0.5).set_material(p3.presets.plastic()))
+    for pixel in (1, 4):
+        img = p3.render(s, tmp_path / f"a{pixel}.png", 64, 48, style="toon", alpha=True, pixel=pixel)
+        assert img.shape == (48, 64, 4)
+        assert img[0, 0, 3] == 0  # background is transparent
+        assert img[24, 32, 3] == 255  # the sphere is opaque
+        assert img[24, 32, :3].sum() > 30
+        from pyram3d.image import decode_png
+        assert decode_png((tmp_path / f"a{pixel}.png").read_bytes()).shape == (48, 64, 4)
+
+
 def test_png_roundtrip():
     from pyram3d.image import decode_png, encode_png
     img = (np.random.default_rng(0).random((17, 23, 4)) * 255).astype(np.uint8)
