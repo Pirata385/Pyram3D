@@ -30,8 +30,9 @@ CELL = 0.024 if FAST else 0.0145
 
 # ----------------------------------------------------------------------------- painting
 
-def paint_plumes(mesh: p3.Mesh, spec):
-    """Overlapping feather rows (luminance) on every Plume face of an SDF mesh."""
+def paint_plumes(mesh: p3.Mesh, spec, rows=30.0, low=0.74):
+    """Overlapping feather rows (luminance) on every Plume face of an SDF mesh. `rows` = rows per
+    meter (the wing mass uses fewer, bigger rows so they still read at game scale)."""
     plume_idx = [i for i, m in enumerate(mesh.materials) if m is not None and m.name == "Plume"]
     if not plume_idx or mesh.colors is None:
         return
@@ -39,8 +40,8 @@ def paint_plumes(mesh: p3.Mesh, spec):
     verts = np.unique(np.concatenate([np.asarray(mesh.faces[i]) for i in np.flatnonzero(np.isin(fm, plume_idx))]))
     P = mesh.vertices[verts]
     ang = np.arctan2(P[:, 0] - np.sign(P[:, 0]) * spec.hip, P[:, 2])
-    row = (P[:, 1] * 30 - P[:, 2] * 12 + 0.35 * np.sin(ang * 5)) % 1.0
-    lum = 0.74 + 0.26 * np.clip((row - 0.05) / 0.55, 0, 1)
+    row = (P[:, 1] * rows - P[:, 2] * rows * 0.4 + 0.35 * np.sin(ang * 5)) % 1.0
+    lum = low + (1 - low) * np.clip((row - 0.05) / 0.55, 0, 1)
     mesh.colors[verts, :3] *= lum[:, None]
 
 
@@ -97,7 +98,8 @@ def body_filter(sk, spec):
     def f(P, i):
         n = names[i]
         ok = side(P, i)
-        is_tail = (P[:, 2] < -0.13) & (P[:, 1] < 0.98 * s) & (np.abs(P[:, 0]) < 0.09)
+        # the tail (thick, with a wide brush) hangs behind the legs: everything well behind the heels
+        is_tail = (P[:, 2] < -0.16) & (P[:, 1] < 0.98 * s) & (np.abs(P[:, 0]) < 0.25)
         if "Wing" in n:
             return np.zeros(len(P), bool)
         if n.startswith("Tail"):
@@ -161,6 +163,11 @@ def build(name: str):
     head_bones = {names.index(n) for n in ("Head", "Neck", "Chest")}
     for style in HR.styles_for(spec):
         hm = HR.style_sdf(spec, style).to_mesh(cell=0.009 if not FAST else 0.016, name=f"Hair_{style}")
+        if spec.harpin:  # temple feathers (cards) belong to every harpin style
+            tf = HR.temple_feathers(spec, {"espetado": 1.0, "crista": 0.85, "plumado": 1.05}[style])
+            if hm.colors is None:
+                hm.colors = np.ones((hm.num_vertices, 4))
+            hm = p3.Mesh.join([hm, tf], name=f"Hair_{style}")
         sk.bind(hm, smooth=4, falloff=6.0, bone_filter=lambda P, i: np.full(len(P), i in head_bones))
         low = hm.vertices[:, 1] > 1.55 * spec.s  # everything above the jaw follows the head exactly
         hm.joints[low] = 0
@@ -173,7 +180,7 @@ def build(name: str):
     # wings
     if spec.harpin:
         fe, arm = H.wing_left(spec, sk)
-        paint_plumes(arm, spec)
+        paint_plumes(arm, spec, rows=12.0, low=0.66)
         wings = p3.Mesh.join([fe, arm, H.mirror_skinned(fe, sk, "fr"), H.mirror_skinned(arm, sk, "ar")], name="Wings")
         nodes.append(p3.skinned_node(wings, sk, "Wings"))
         stats["wings"] = wings.num_triangles

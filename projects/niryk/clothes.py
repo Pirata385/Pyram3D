@@ -57,10 +57,12 @@ def skirt_shape(spec: BodySpec):
     s = spec.s
     f = spec.gender == "f"
     if spec.harpin:
-        return 1.0 * s, 0.7 * s, (0.2, 0.15, -0.01), ((0.27 if f else 0.26), 0.22, 0.06)
-    if f:
-        return 1.0 * s, 0.6 * s, (0.185, 0.135, -0.01), (0.25, 0.19, 0.0)
-    return 1.0 * s, 0.7 * s, (0.18, 0.13, -0.01), (0.228, 0.17, 0.0)  # clears the thighs in every pose
+        if f:  # longer, flared
+            return 1.0 * s, 0.64 * s, (0.2, 0.15, -0.01), (0.3, 0.23, 0.06)
+        return 1.0 * s, 0.7 * s, (0.21, 0.155, -0.01), (0.26, 0.22, 0.06)
+    if f:  # knee-length, flared: reads feminine at game scale next to the straight male tunic
+        return 1.0 * s, 0.5 * s, (0.192, 0.138, -0.01), (0.3, 0.215, 0.0)
+    return 1.0 * s, 0.7 * s, (0.19, 0.135, -0.01), (0.232, 0.172, 0.0)  # straight; clears the thighs
 
 
 def skirt_radius(spec: BodySpec, y: float):
@@ -75,8 +77,9 @@ def tunic(spec: BodySpec):
     s = spec.s
     f = spec.gender == "f"
     J = joints(spec)
-    t = 0.016
-    body = sdf.smooth_union(*[p for p in torso(spec)], k=0.03)
+    t = 0.02
+    # a wide blend over the full torso: the cloth drapes over the muscles instead of hugging them
+    body = sdf.smooth_union(*torso(spec), k=0.07)
     top_y = 1.47 * s
     top, hem, r_top, r_hem = skirt_shape(spec)
     upper = mat(body.round(t), "Cloth_A").intersect(mat(_slab(0.9 * s, top_y), "Cloth_A"))

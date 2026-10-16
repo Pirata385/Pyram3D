@@ -42,8 +42,16 @@ def legs(spec: BodySpec):
                                                    (0.08 * L, 0.13 * spec.s, 0.085 * L))), 0.04)
     parts.append(thigh.displace(**_tufts(0.01, 24, 1)))
     # slim plumed shin and tarsus with a frayed cuff above the toes
-    parts.append(plume(sdf.round_cone(knee, ankle, 0.056 * L, 0.036 * L), 0.95).displace(**_tufts(0.008, 34, 2)))
-    parts.append(plume(sdf.sphere(ankle, 0.04 * L), 0.92))
+    # shin: full eagle "trousers" (thick plumes) ending in a fan of feathers over the tarsus
+    parts.append(plume(sdf.round_cone(knee, ankle, 0.074 * L, 0.05 * L), 0.95).displace(**_tufts(0.012, 30, 2)))
+    down = (ankle - knee) / np.linalg.norm(ankle - knee)
+    for k, ang in enumerate(np.linspace(-150, 150, 7)):
+        a = math.radians(ang)
+        out = np.array([math.sin(a), 0.0, math.cos(a)])
+        root = ankle - down * 0.07 + out * 0.035 * L
+        tip = root + down * 0.11 + out * 0.045
+        parts.append(plume(sdf.round_cone(root, tip, 0.024 * L, 0.004), 0.9 + 0.06 * (k % 2)))
+    parts.append(plume(sdf.sphere(ankle, 0.045 * L), 0.92))
     parts.append(plume(sdf.round_cone(ankle, ball + np.array([0, 0.035, 0]), 0.037 * L, 0.03 * L), 0.95).displace(**_tufts(0.007, 40, 3)))
     parts.append(plume(sdf.ellipsoid(ball + np.array([0, 0.05, -0.005]), (0.05 * L, 0.04, 0.048 * L)), 0.88).displace(**_tufts(0.014, 30, 4)))
     return [p.mirror_x() for p in parts]
@@ -71,15 +79,18 @@ def feet(spec: BodySpec):
 
 
 def tail(spec: BodySpec):
+    """Long mammal tail covered in plumes: thick at the root (r 0.11), 0.08 in the middle, ending
+    in a fox-like brush (r ~0.18, ~0.45 m) that rests on the ground and curls up."""
     pts = tail_points(spec)
-    radii = np.linspace(0.05, 0.03, len(pts))
-    shape = plume(sdf.chain([tuple(p) for p in pts], list(radii), k=0.03), 0.95)
-    # plume tuft at the tip: elongated leaf-shaped fluff
-    a, b = pts[-2], pts[-1]
-    d = (b - a) / np.linalg.norm(b - a)
-    tip = plume(sdf.round_cone(b - d * 0.1, b + d * 0.2, 0.075, 0.012), 1.0)
-    shape = shape.smooth_union(tip, 0.04)
-    return shape.displace(**_tufts(0.013, 28, 7))
+    radii = [0.11, 0.1, 0.088, 0.08, 0.09, 0.1, 0.06]
+    shape = plume(sdf.chain([tuple(p) for p in pts], radii, k=0.04), 0.95)
+    a, b, c = pts[-3], pts[-2], pts[-1]
+    d = (c - b) / np.linalg.norm(c - b)
+    # fox brush: long spindle (~0.5 m) widest past the middle, ending in a point
+    brush = plume(sdf.chain([tuple(a + (b - a) * 0.2), tuple(b), tuple(c), tuple(c + d * 0.18)],
+                            [0.1, 0.155, 0.13, 0.02], k=0.06), 1.0)
+    shape = shape.smooth_union(brush, 0.05)
+    return shape.displace(**_tufts(0.016, 24, 7))
 
 
 def ruff(spec: BodySpec):
@@ -103,7 +114,8 @@ def head_plumes(spec: BodySpec):
 
 # ----------------------------------------------------------------------------- wings
 
-def feather(root, tip, width, normal, cup=0.12, curl=0.0, asym=0.15, segs=6, tone=1.0, tip_band=0.72):
+def feather(root, tip, width, normal, cup=0.12, curl=0.0, asym=0.15, segs=6, tone=1.0, tip_band=0.72,
+            rachis_dark=False):
     """One flat feather card (double sided material) with painted rachis and tip band."""
     root, tip, normal = (np.asarray(v, float) for v in (root, tip, normal))
     d = tip - root
@@ -124,7 +136,8 @@ def feather(root, tip, width, normal, cup=0.12, curl=0.0, asym=0.15, segs=6, ton
         band = tip_band if t > 0.8 else (0.93 if t > 0.62 else 1.0)
         V += [lft, c, rgt]
         # dark trailing edge, light vane: overlapping feathers read as stripes even at game scale
-        C += [[tone * band * 0.58] * 3 + [1.0], [tone * min(1.0, band * 1.08)] * 3 + [1.0], [tone * band * 0.94] * 3 + [1.0]]
+        mid = tone * band * 0.55 if rachis_dark else tone * min(1.0, band * 1.08)
+        C += [[tone * band * 0.58] * 3 + [1.0], [mid] * 3 + [1.0], [tone * band * 0.94] * 3 + [1.0]]
     for i in range(segs):
         a, b = i * 3, (i + 1) * 3
         F += [(a, a + 1, b + 1), (a, b + 1, b), (a + 1, a + 2, b + 2), (a + 1, b + 2, b + 1)]
@@ -145,7 +158,9 @@ def wing_points(spec: BodySpec):
 
 
 def wing_left(spec: BodySpec, sk: p3.Skeleton):
-    """Left wing mesh (feathers + plumed arm), skinned to Chest/LeftWing1..3."""
+    """Left wing, skinned to Chest/LeftWing1..3: a thick plumed arm and covert mass (a teardrop
+    section 0.15-0.2 m deep, so the folded wing never reads as a flat board or a needle from
+    the iso camera) with long flight-feather cards hanging from it."""
     S, E, W, T = wing_points(spec)
     normal = np.cross(W - S, T - S)
     normal /= np.linalg.norm(normal)
@@ -156,42 +171,33 @@ def wing_left(spec: BodySpec, sk: p3.Skeleton):
     inward = np.cross(normal, down)  # in-plane, perpendicular to the primaries
     if inward[0] > 0:
         inward = -inward
-    pieces = []  # (mesh, bone name)
 
-    # primaries: roots fan along the wrist/hand, tips fan around T (outer = longest)
-    n_p = 10
+    def in_plane(v):
+        v = np.asarray(v, float) - normal * np.dot(v, normal)
+        return v / np.linalg.norm(v)
+
+    pieces = []  # (mesh, bone name)
+    # primaries: 8 long cards from the hand, tips fanned around T (outer = longest)
+    n_p = 8
     for k in range(n_p):
         t = k / (n_p - 1)
-        root = W + down * 0.06 + inward * (0.02 + 0.07 * t) - normal * 0.01 * (1 - t)
-        tip = T + inward * (0.26 * t) + np.array([0, 0.3 * spec.s * t ** 1.4, 0]) - normal * 0.006 * k
-        pieces.append((feather(root, tip, 0.13 - 0.015 * t, normal, cup=0.1, curl=0.04, asym=-0.2,
+        root = W + down * 0.08 + inward * (0.02 + 0.08 * t) - normal * 0.015 * (1 - t)
+        tip = T + inward * (0.2 * t) + np.array([0, 0.34 * spec.s * t ** 1.3, 0]) - normal * 0.008 * k
+        pieces.append((feather(root, tip, 0.16 - 0.015 * t, normal, cup=0.1, curl=0.04, asym=-0.2,
                                tone=(0.86 if k % 2 else 1.0) * (0.94 + 0.06 * t), tip_band=0.6), "LeftWing3"))
-    # secondaries: hang from the arm, shorter toward the body
-    n_s = 11
-    arm = [S + (E - S) * 0.25, E, W]
+    # secondaries: 8 cards hanging from the forearm, shorter toward the body
+    arm = [S + (E - S) * 0.3, E, W]
+    sec_dir = in_plane(down * 0.55 + np.array([0, -1.0, 0]) * 0.45)
+    n_s = 8
     for k in range(n_s):
         t = k / (n_s - 1)
         root = _lerp(arm[1], arm[2], 1 - 2 * t) if t < 0.5 else _lerp(arm[0], arm[1], 2 - 2 * t)
-        root = root - normal * 0.004
-        tip_y = _lerp(0.82, 1.12, t) * spec.s
-        tip = np.array([root[0] + 0.03 - 0.02 * t, tip_y, root[2] - 0.02]) + inward * 0.02
+        root = root - normal * 0.01 + sec_dir * 0.06
+        ln = _lerp(0.95, 0.6, t) * spec.s
+        tip = root + sec_dir * ln + inward * 0.03 * t
         bone = "LeftWing2" if t < 0.4 else "LeftWing1"
-        pieces.append((feather(root, tip, 0.13, normal, cup=0.12, curl=0.03, asym=0.1,
+        pieces.append((feather(root, tip, 0.15, normal, cup=0.12, curl=0.03, asym=0.1,
                                tone=(0.84 if k % 2 else 0.97) * (0.9 + 0.08 * t), tip_band=0.64), bone))
-    # coverts: two rows of short feathers over the secondaries' roots (front and back faces)
-    for row, (ln, off, nf) in enumerate(((0.36, 0.012, 12), (0.2, 0.022, 10))):
-        for k in range(nf):
-            t = k / (nf - 1)
-            root = _lerp(arm[1], arm[2], 1 - 2 * t) if t < 0.5 else _lerp(arm[0], arm[1], 2 - 2 * t)
-            for sgn in (1, -1):
-                r = root + normal * off * sgn + np.array([0, -0.01, 0])
-                tip = r + np.array([0.01, -ln * spec.s, 0]) + inward * 0.03
-                bone = "LeftWing2" if t < 0.45 else "LeftWing1"
-                pieces.append((feather(r, tip, 0.1 - 0.02 * row, normal * sgn, cup=0.15, asym=0.05,
-                                       tone=0.84 + 0.08 * row, tip_band=0.82), bone))
-    # alula / wrist tuft
-    pieces.append((feather(W + np.array([0, 0.01, 0]), W + np.array([0.06, -0.16, 0.0]) + inward * 0.04, 0.08,
-                           normal, tone=0.9), "LeftWing2"))
 
     meshes = []
     names = {b.name: i for i, b in enumerate(sk.bones)}
@@ -205,10 +211,20 @@ def wing_left(spec: BodySpec, sk: p3.Skeleton):
     mat = p3.Material("Plume_Feather", "#ecebe6", roughness=0.85, double_sided=True)
     feathers.set_material(mat)
 
-    # plumed wing arm (leading edge)
-    arm_sdf = plume(sdf.chain([tuple(S), tuple(E), tuple(W), tuple(W + down * 0.1)], [0.055, 0.045, 0.034, 0.026], k=0.03))
-    arm_sdf = arm_sdf.displace(**_tufts(0.01, 30, 11))
-    arm_mesh = arm_sdf.to_mesh(cell=0.016, name="Wing_L_Arm")
+    # plumed arm (leading edge, thick "shoulder" at head height) and the covert mass: rows of
+    # plumes rotated around the arm so the folded wing has a teardrop section
+    arm_pts = [S + (E - S) * 0.15, E, W, W + down * 0.12]
+    parts = [plume(sdf.chain([tuple(p) for p in arm_pts], [0.07, 0.09, 0.08, 0.045], k=0.04))]
+    for k in range(7):
+        t = k / 6
+        p = _lerp(arm[1], arm[2], 1 - 2 * t) if t < 0.5 else _lerp(arm[0], arm[1], 2 - 2 * t)
+        for side, rot in ((1, 0.55), (-1, 0.35)):  # front and back faces flare apart (+-25..35 deg)
+            d = in_plane(sec_dir) * np.cos(rot) + normal * side * np.sin(rot)
+            ln = _lerp(0.4, 0.3, t)
+            parts.append(plume(sdf.round_cone(tuple(p), tuple(p + d * ln), 0.062, 0.02), 0.92 + 0.08 * (k % 2)))
+    # light displacement only: the feather rows are painted (paint_plumes), lumps read as cotton
+    arm_sdf = sdf.smooth_union(*parts, k=0.05).displace(**_tufts(0.007, 26, 11))
+    arm_mesh = arm_sdf.to_mesh(cell=0.02, name="Wing_L_Arm")
     wing_bones = [names["Chest"], names["LeftWing1"], names["LeftWing2"], names["LeftWing3"]]
     sk.bind(arm_mesh, smooth=4, falloff=6.0, bone_filter=lambda P, i: np.full(len(P), i in wing_bones))
     return feathers, arm_mesh

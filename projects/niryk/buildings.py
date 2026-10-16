@@ -46,7 +46,7 @@ def _noise(n, scale, seed):
     return fbm2(xs / scale, ys / scale, octaves=3, seed=seed) * 0.5 + 0.5
 
 
-def tex_plaster(color="#d8c6a2", n=128):
+def tex_plaster(color="#efe2c4", n=128):  # warm: walls facing the camera sit in the cool shade band
     v = _noise(n, 18, 1)
     img = _bands(v, [0.42, 0.62], [_shade(color, 0.92), color, _shade(color, 1.05)]).copy()
     for _ in range(12):  # tiny cracks / speckles
@@ -164,7 +164,7 @@ def T(name):
     if name not in TEX:
         TEX[name] = {
             "plaster": lambda: tex_plaster(),
-            "plaster_b": lambda: tex_plaster("#cdb994"),
+            "plaster_b": lambda: tex_plaster("#e4d2ae"),
             "stone": tex_stone,
             "planks": lambda: tex_planks(),
             "planks_dark": lambda: tex_planks("#6a4630"),
@@ -315,7 +315,12 @@ def well():
     parts = []
     ring = p3.lathe([(0.0, 0), (1.15, 0), (1.15, 0.85), (0.92, 0.85), (0.92, 0.1), (0.0, 0.1)], 16)
     parts.append(textured(ring, T("stone"), "Stone"))
-    parts.append(p3.cylinder(0.9, 0.05, 16).translate((0, 0.55, 0)).set_material(flat("Water", "#2f5f86", emissive="#14304a", emissive_strength=0.3)))
+    # water 0.5 m down the shaft: dark rim where the stone meets it, a few 1 px glints
+    parts.append(p3.cylinder(0.92, 0.05, 16).translate((0, 0.33, 0)).set_material(flat("Water", "#2f5f86", emissive="#14304a", emissive_strength=0.3)))
+    rim = p3.lathe([(0.74, 0), (0.92, 0), (0.92, 0.01), (0.74, 0.01)], 16).translate((0, 0.356, 0))
+    parts.append(rim.set_material(flat("Water_Dark", "#16283c")))
+    for (gx, gz, ln) in ((-0.25, 0.1, 0.16), (0.18, -0.22, 0.1), (0.3, 0.25, 0.08)):
+        parts.append(p3.box((ln, 0.006, 0.03)).translate((gx, 0.36, gz)).set_material(flat("Water_Glint", "#d8eeff", emissive="#8fb8e0", emissive_strength=0.5)))
     for sx in (-1, 1):
         parts.append(textured(p3.box((0.16, 1.9, 0.16)).translate((sx * 0.95, 1.6, 0)), T("planks_dark"), "Wood"))
     parts.append(textured(p3.cylinder(0.08, 2.1, 8).rotate((0, 0, 90)).translate((0, 2.1, 0)), T("planks_dark"), "Wood"))

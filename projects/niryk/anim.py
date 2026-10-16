@@ -146,6 +146,24 @@ class Rig:
             q = qm(q, pose.get(name, I))
         return q
 
+    def world_head(self, pose, bone):
+        """World position of a bone's head for a pose (bones have identity rest rotations)."""
+        chain = []
+        b = bone
+        while b is not None:
+            chain.append(b)
+            b = self.parent[b]
+        chain.reverse()
+        root = chain[0]
+        p = self.head[root] + getattr(pose, "hips", np.zeros(3))
+        q = I
+        prev = root
+        for name in chain[1:]:
+            q = qm(q, pose.get(prev, I))
+            p = p + rot(q, self.head[name] - self.head[prev])
+            prev = name
+        return p
+
     def aim(self, pose, bone, world_dir, twist_ref=None):
         """Local rotation so that `bone` points along world_dir (shortest arc from rest)."""
         par = self.parent[bone]
@@ -263,19 +281,19 @@ def wings_tail(rig: Rig, pose, t, clip, phase, intensity=1.0):
         o = 0.15 + 0.85 * math.exp(-((phase - k) / 0.18) ** 2)  # flare at the strike
     elif clip == "Hit":
         o = 0.35 * math.sin(math.pi * phase)
-    elif clip == "Death":
-        o = 0.5 * smooth(phase / 0.4) - 0.2 * smooth((phase - 0.5) / 0.5)
-    else:  # Idle breathing
-        o = 0.05 + 0.04 * math.sin(phase * 2 * math.pi)
+    elif clip == "Death":  # flare as the knees give, then fold half over the body
+        o = 0.45 * smooth(phase / 0.3) - 0.4 * smooth((phase - 0.35) / 0.4)
+    else:  # Idle breathing (~3-5 deg at the shoulder)
+        o = 0.07 + 0.05 * math.sin(phase * 2 * math.pi)
     for side, sgn in (("Left", 1), ("Right", -1)):
         # open: raise the arm outward and back, unfold the hand outward
         pose[side + "Wing1"] = qm(qz(-sgn * 38 * o), qy(sgn * 22 * o))
         pose[side + "Wing2"] = qz(-sgn * 30 * o)
         pose[side + "Wing3"] = qm(qz(sgn * 105 * o), qx(-10 * o))
-    amp = {"Run": 9, "Walk": 6, "Idle": 4}.get(clip, 5)
+    amp = {"Run": 11, "Walk": 10, "Idle": 4, "Death": 2}.get(clip, 5)  # +-10 deg sway, delayed down the tail
     for i in range(1, 7):
         w = math.sin(phase * 2 * math.pi * (2 if clip in ("Walk", "Run") else 1) - i * 0.7)
-        lift = {"Run": -6, "Death": 6}.get(clip, 0)
+        lift = {"Run": -6}.get(clip, 0)
         pose[f"Tail{i}"] = qm(qy(amp * w), qx(lift + (2 * math.sin(phase * 2 * math.pi + i) if clip == "Idle" else 0)))
 
 
@@ -318,10 +336,12 @@ def sample_clip(rig: Rig, clip: str, t: float) -> PoseSet:
         locomotion_legs(rig, phase, "run" if run else "walk", P, P.hips, lean * 0.5)
         sw = (48 if run else 22) * math.sin(phase * two_pi)
         arm_pose(P, "Left", down=70 if run else 76, swing=sw, elbow=78 if run else 18)
-        # right arm carries the sword low, swinging a little
-        s = math.sin(phase * two_pi + math.pi)
-        right_arm_world(rig, P, ua=(-0.22, -0.95, 0.22 + 0.25 * s), fa=(-0.05, -0.55 if not run else -0.3, 0.85),
-                        blade=(0.0, 0.3 if not run else 0.0, 1.0))
+        # right arm carries the sword relaxed: elbow bent ~25 deg, blade 30-45 deg below the
+        # horizontal pointing back, the whole arm swinging opposite to the left one
+        sw_r = math.radians(25 if run else 15) * math.sin(phase * two_pi + math.pi)
+        ua = (-0.2, -math.cos(sw_r), math.sin(sw_r) + (0.12 if run else 0.04))
+        fa = (-0.16, -0.86, 0.48 + (0.25 if run else 0.0) + 0.6 * math.sin(sw_r))
+        right_arm_world(rig, P, ua=ua, fa=fa, blade=(-0.3, -0.62 if not run else -0.5, -0.72))
     elif clip == "Idle":
         br = math.sin(phase * two_pi)
         P.hips = np.array([0.0, -0.008 + 0.004 * br, 0.0])
@@ -335,27 +355,42 @@ def sample_clip(rig: Rig, clip: str, t: float) -> PoseSet:
     elif clip in ("Attack1", "Attack2"):
         _attack(rig, P, clip, t)
     elif clip == "Hit":
-        k = math.sin(math.pi * min(1.0, t / dur)) * (1 - 0.3 * phase)
-        P.hips = np.array([0.0, -0.02 * k, -0.06 * k])
-        P["Hips"] = qx(-6 * k)
+        # sharp recoil (peak at ~0.08 s), back to guard by ~0.3 s
+        k = math.exp(-((t - 0.08) / 0.09) ** 2) if t > 0.08 else smooth(t / 0.08)
+        P.hips = np.array([0.0, -0.04 * k, -0.08 * k])
+        P["Hips"] = qx(-8 * k)
         P["Spine"] = qx(-10 * k)
-        P["Chest"] = qm(qx(-12 * k), qy(-8 * k))
-        P["Head"] = qx(-14 * k)
-        _stand_legs(rig, P, wide=0.06, knees=10 * k)
-        arm_pose(P, "Left", down=60 - 20 * k, swing=-10 * k, elbow=30 + 30 * k)
-        right_arm_world(rig, P, ua=(-0.4, -0.85, 0.1), fa=(-0.3, -0.4, 0.85), blade=(-0.2, 0.6, 0.8))
+        P["Chest"] = qm(qx(-12 * k), qy(-10 * k))
+        P["Neck"] = qx(-10 * k)
+        P["Head"] = qm(qx(-15 * k), qz(6 * k))
+        _stand_legs(rig, P, wide=0.06, knees=15 * k)
+        arm_pose(P, "Left", down=70 - 25 * k, swing=-15 * k, elbow=25 + 45 * k)
+        ua0, fa0, bl0 = (np.array(SWORD_IDLE[n]) for n in ("ua", "fa", "blade"))
+        right_arm_world(rig, P, ua=lerp(ua0, np.array([-0.45, -0.88, -0.15]), k),
+                        fa=lerp(fa0, np.array([-0.35, -0.9, 0.2]), k),
+                        blade=lerp(bl0, np.array([-0.3, -0.85, 0.4]), k))  # the sword arm drops
     elif clip == "Death":
-        f = smooth(phase / 0.7)
-        P.hips = np.array([0.0, lerp(0.0, -0.8 * rig.spec.s, f), lerp(0.0, -0.35, f)])
-        P["Hips"] = qx(-82 * f)
-        P["Spine"] = qx(-8 * f)
-        P["Chest"] = qx(-6 * f)
-        P["Head"] = qm(qx(10 * f), qy(25 * f))
-        _stand_legs(rig, P, wide=0.08 + 0.08 * f, knees=40 * math.sin(math.pi * min(1.0, phase / 0.7)), hip_pitch=-82 * f, planted=False)
-        arm_pose(P, "Left", down=lerp(74, 20, f), swing=lerp(0, -30, f), elbow=lerp(14, 40, f))
-        right_arm_world(rig, P, ua=(lerp(-0.25, -0.9, f), lerp(-0.95, 0.1, f), lerp(0.25, -0.4, f)),
-                        fa=(lerp(-0.1, -0.9, f), lerp(-0.55, 0.0, f), lerp(0.85, -0.3, f)),
-                        blade=(-0.3, 1.0, 0.0) if f > 0.5 else (0.0, 0.3, 1.0))
+        # knees give way first (0-0.3 s), then a heavy fall backward with a twist, spine curled,
+        # limbs loose; the sword leaves the hand (sword_drop) and the wings fold over
+        b = smooth(t / 0.3)  # buckle
+        f = smooth((t - 0.22) / 0.5)  # fall
+        P.hips = np.array([0.04 * f, -0.22 * rig.spec.s * b - 0.6 * rig.spec.s * f, -0.3 * f])
+        P["Hips"] = qm(qy(20 * f), qx(10 * b - 85 * f), qz(10 * f))
+        P["Spine"] = qx(12 * b + 4 * f)
+        P["Chest"] = qm(qx(10 * b + 8 * f), qy(-10 * f))
+        P["Neck"] = qx(12 * b - 6 * f)
+        P["Head"] = qm(qx(15 * b - 5 * f), qy(35 * f), qz(10 * f))
+        knees = 60 * b + 10 * f
+        _stand_legs(rig, P, wide=0.07 + 0.06 * f, knees=knees, hip_pitch=-85 * f, planted=f < 0.02)
+        if f >= 0.02:  # legs fold loosely as the body lands
+            for side, sgn in (("Left", 1), ("Right", -1)):
+                P[side + "UpperLeg"] = qm(qz(-sgn * (6 + 10 * f) * (1.4 if side == "Left" else 1)), qx(-knees * 0.55 - 30 * f))
+                P[side + "LowerLeg"] = qx(knees * (1.1 if side == "Left" else 0.8))
+        arm_pose(P, "Left", down=lerp(74, 58, f), swing=lerp(4, 25, b) - 45 * f, elbow=lerp(14, 55, b))
+        ua0, fa0, bl0 = (np.array(SWORD_IDLE[n]) for n in ("ua", "fa", "blade"))
+        right_arm_world(rig, P, ua=lerp(ua0, np.array([-0.8, -0.55, 0.2]), f),
+                        fa=lerp(fa0, np.array([-0.7, -0.3, 0.65]), f),
+                        blade=lerp(bl0, np.array([-0.5, -0.8, 0.3]), f))
     wings_tail(rig, P, t, clip, phase)
     return P
 
@@ -388,29 +423,42 @@ def _stand_legs(rig: Rig, P: PoseSet, wide=0.05, knees=0.0, hip_pitch=0.0, plant
 def _attack(rig: Rig, P: PoseSet, clip: str, t: float):
     """Sword slashes. Attack1: horizontal slash right -> left. Attack2: rising backhand left -> right."""
     if clip == "Attack1":
-        times = [0.0, 0.1, 0.2, 0.3, 0.5]
-        chest = {0.0: (0, 4, 0), 0.1: (-35, 6, 0), 0.2: (35, 2, 0), 0.3: (45, 0, 0), 0.5: (4, 4, 0)}  # yaw, pitch
-        ua = {0.0: (-0.25, -0.95, 0.25), 0.1: (-0.95, 0.05, -0.3), 0.2: (-0.2, -0.05, 1.0), 0.3: (0.75, -0.1, 0.65), 0.5: (-0.25, -0.95, 0.25)}
-        fa = {0.0: (-0.1, -0.55, 0.85), 0.1: (-0.7, 0.15, -0.7), 0.2: (0.2, 0.0, 1.0), 0.3: (0.95, 0.0, 0.2), 0.5: (-0.1, -0.55, 0.85)}
-        blade = {0.0: (-0.05, 0.25, 1.0), 0.1: (-0.4, 0.2, -1.0), 0.2: (0.9, 0.05, 0.6), 0.3: (0.6, 0.0, -0.8), 0.5: (-0.05, 0.25, 1.0)}
-        step = {0.0: 0.0, 0.1: -0.03, 0.2: 0.14, 0.3: 0.16, 0.5: 0.0}
+        # anticipation (0-0.12: blade behind the right shoulder, torso coiled back, knees bent),
+        # fast diagonal cut down to the left (0.12-0.21, ~160 deg arc) with a 0.3 m step and a
+        # 50 deg torso turn, follow-through to 0.4, back to guard at 0.5
+        chest = {0.0: (0, 4, 0), 0.12: (-35, 8, 0), 0.2: (30, -4, 0), 0.3: (50, -8, 0), 0.4: (40, -2, 0), 0.5: (4, 4, 0)}
+        ua = {0.0: (-0.25, -0.95, 0.25), 0.12: (-0.75, 0.6, -0.3), 0.2: (0.05, -0.15, 1.0), 0.3: (0.75, -0.55, 0.4),
+              0.4: (0.55, -0.8, 0.3), 0.5: (-0.25, -0.95, 0.25)}
+        fa = {0.0: (-0.1, -0.55, 0.85), 0.12: (-0.25, 0.95, -0.35), 0.2: (0.3, -0.3, 0.9), 0.3: (0.85, -0.5, -0.1),
+              0.4: (0.6, -0.75, 0.25), 0.5: (-0.1, -0.55, 0.85)}
+        blade = {0.0: (-0.05, 0.25, 1.0), 0.12: (-0.35, 0.55, -0.8), 0.2: (0.85, -0.45, 0.35), 0.3: (0.45, -0.75, -0.5),
+                 0.4: (0.3, -0.8, 0.4), 0.5: (-0.05, 0.25, 1.0)}
+        step = {0.0: 0.0, 0.12: -0.04, 0.2: 0.28, 0.3: 0.3, 0.4: 0.26, 0.5: 0.0}
+        crouch = {0.0: 0.0, 0.12: 0.08, 0.2: 0.06, 0.3: 0.08, 0.5: 0.0}
     else:
-        times = [0.0, 0.12, 0.24, 0.34, 0.55]
-        chest = {0.0: (4, 4, 0), 0.12: (40, 2, 0), 0.24: (-30, -6, 0), 0.34: (-40, 0, 0), 0.55: (0, 4, 0)}
-        ua = {0.0: (-0.25, -0.95, 0.25), 0.12: (0.6, 0.55, 0.45), 0.24: (-0.3, -0.2, 1.0), 0.34: (-0.95, -0.45, 0.2), 0.55: (-0.25, -0.95, 0.25)}
-        fa = {0.0: (-0.1, -0.55, 0.85), 0.12: (0.45, 0.85, 0.0), 0.24: (-0.4, -0.35, 0.85), 0.34: (-0.8, -0.6, -0.1), 0.55: (-0.1, -0.55, 0.85)}
-        blade = {0.0: (-0.05, 0.25, 1.0), 0.12: (0.3, 0.9, -0.4), 0.24: (-0.6, -0.4, 0.7), 0.34: (-0.6, -0.7, -0.3), 0.55: (-0.05, 0.25, 1.0)}
-        step = {0.0: 0.0, 0.12: 0.0, 0.24: 0.16, 0.34: 0.16, 0.55: 0.0}
+        # backhand: starts where Attack1 ended (blade low on the left), sweeps horizontally to the
+        # right; the free arm stays tucked
+        chest = {0.0: (45, -4, 0), 0.12: (55, 2, 0), 0.24: (-30, -2, 0), 0.36: (-50, -4, 0), 0.46: (-35, 0, 0), 0.55: (0, 4, 0)}
+        ua = {0.0: (0.6, -0.6, 0.5), 0.12: (0.85, 0.05, -0.2), 0.24: (-0.25, -0.05, 0.97), 0.36: (-0.9, -0.2, 0.35),
+              0.46: (-0.6, -0.7, 0.3), 0.55: (-0.25, -0.95, 0.25)}
+        fa = {0.0: (0.7, -0.5, 0.4), 0.12: (0.6, 0.2, -0.7), 0.24: (-0.6, 0.0, 0.8), 0.36: (-0.75, -0.1, -0.6),
+              0.46: (-0.5, -0.6, 0.6), 0.55: (-0.1, -0.55, 0.85)}
+        blade = {0.0: (0.4, -0.6, -0.6), 0.12: (0.55, 0.1, -0.8), 0.24: (-0.95, 0.05, 0.3), 0.36: (-0.4, 0.0, -0.9),
+                 0.46: (-0.3, -0.5, 0.7), 0.55: (-0.05, 0.25, 1.0)}
+        step = {0.0: 0.2, 0.12: 0.18, 0.24: 0.3, 0.36: 0.3, 0.46: 0.2, 0.55: 0.0}
+        crouch = {0.0: 0.06, 0.12: 0.08, 0.24: 0.06, 0.36: 0.08, 0.55: 0.0}
     yaw, pitch, _ = keyframes(t, chest)
     st = float(keyframes(t, step))
-    P.hips = np.array([0.0, -0.05 - 0.04 * min(1.0, st / 0.15), st])
-    P["Hips"] = qy(yaw * 0.35)
+    cr = float(keyframes(t, crouch))
+    P.hips = np.array([0.0, -0.04 - cr, st])
+    P["Hips"] = qy(yaw * 0.4)
     P["Spine"] = qm(qy(yaw * 0.3), qx(pitch * 0.5))
     P["Chest"] = qm(qy(yaw * 0.35), qx(pitch * 0.5))
     P["Head"] = qy(-yaw * 0.6)
     # lunge: left foot forward, right foot back, both planted (IK)
     hp = 0.0
-    for side, (dz, dx) in (("Left", (0.22, 0.04)), ("Right", (-0.18, -0.03))):
+    # the front foot steps with the body (the step is real), the back foot slides a little
+    for side, (dz, dx) in (("Left", (0.1 + st, 0.04)), ("Right", (-0.2 + st * 0.35, -0.03))):
         sgn = 1 if side == "Left" else -1
         hip = rig.J["LeftUpperLeg"][0]
         if rig.harpin:
@@ -428,13 +476,34 @@ def _attack(rig: Rig, P: PoseSet, clip: str, t: float):
         P[side + "LowerLeg"] = qx(r[1])
         P[side + "Foot"] = qm(qx(r[2]), qz(sgn * 4))
         P[side + "Toes"] = qx(r[3])
-    arm_pose(P, "Left", down=float(lerp(70, 40, abs(yaw) / 45)), swing=float(-yaw * 0.6), elbow=50)
+    # free arm tucked against the chest (no "airplane" arms)
+    arm_pose(P, "Left", down=72, swing=float(30 + abs(yaw) * 0.2), elbow=105, twist=10)
     right_arm_world(rig, P, ua=keyframes(t, ua), fa=keyframes(t, fa), blade=keyframes(t, blade))
+
+
+def sword_drop(rig: Rig, sock_t, sock_q):
+    """Death: Socket_Weapon_R local (translation, rotation) over time. The sword stays in the hand
+    until 0.45 s, then falls and ends lying flat on the ground beside the hand."""
+    end = sample_clip(rig, "Death", DUR["Death"])
+    R = rig.world_rot(end, "RightHand")
+    H = rig.world_head(end, "RightHand")
+    u = np.array([0.35, 0.0, 0.94])  # blade on the ground, at an angle to the limp arm
+    X = np.array([H[0] - 0.05, 0.035, H[2] + 0.28])  # landed a little away from the open hand
+    Q = arc(np.array([0.0, 1.0, 0.0]), u)  # model +Y (blade) along u, guard flat
+    t_end = rot(qinv(R), X - H)
+    q_end = qm(qinv(R), Q)
+
+    def at(t):
+        k = smooth((t - 0.45) / 0.35)
+        return np.asarray(sock_t) * (1 - k) + t_end * k, m3.quat_slerp(np.asarray(sock_q), q_end, k)
+    return at
 
 
 def bake(scene: p3.Scene, rig: Rig, clips=None):
     clips = clips or list(DUR)
     hips_rest = rig.sk.bone("Hips").extras["rest_translation"]
+    sock = next((c for c in rig.sk.bone("RightHand").children if c.name == "Socket_Weapon_R"), None)
+    drop = sword_drop(rig, sock.translation, sock.rotation) if sock is not None else None
     for clip in clips:
         anim = scene.animation(clip)
         anim.loop = clip in ("Idle", "Walk", "Run")
@@ -446,4 +515,8 @@ def bake(scene: p3.Scene, rig: Rig, clips=None):
             for b in rig.sk.bones:
                 anim.key(b, "rotation", t, P.get(b.name, I), "LINEAR")
             anim.key(rig.sk.bone("Hips"), "position", t, hips_rest + P.hips, "LINEAR")
+            if drop is not None:  # every clip keys the socket, so the sword returns to the hand
+                st, sq = drop(t) if clip == "Death" else (sock.translation, sock.rotation)
+                anim.key(sock, "position", t, st, "LINEAR")
+                anim.key(sock, "rotation", t, sq, "LINEAR")
     return scene

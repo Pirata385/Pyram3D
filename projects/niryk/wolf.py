@@ -136,8 +136,8 @@ def wolf_sdf():
     parts.append(fur(sdf.round_cone((0, 0.82, 0.28), (0, 0.94, 0.48), 0.15, 0.105), FLANK))
     parts.append(fur(sdf.ellipsoid((0, 0.91, 0.36), (0.14, 0.12, 0.11)), SADDLE, 1.1))  # mane
     parts += _spikes((0, 0.95, 0.4), (0, 0.35, -1), 9, 0.17, 0.035, (0.09, 0.04, 0.05), SADDLE, seed=1, shade=1.05)
-    parts += [p.mirror_x() for p in _spikes((0.11, 0.86, 0.4), (0.6, 0.05, -1), 5, 0.14, 0.03, (0.02, 0.06, 0.05), FLANK, seed=2)]
-    parts += _spikes((0, 0.55, 0.24), (0, -0.6, 0.35), 6, 0.12, 0.03, (0.07, 0.02, 0.03), PALE, seed=3)  # chest tuft
+    parts += [p.mirror_x() for p in _spikes((0.11, 0.88, 0.38), (0.3, 0.15, -1), 4, 0.13, 0.03, (0.02, 0.05, 0.04), FLANK, seed=2)]
+    parts += _spikes((0, 0.6, 0.3), (0, -0.35, 0.6), 4, 0.07, 0.028, (0.06, 0.02, 0.02), PALE, seed=3)  # short chest tuft
     # head: bigger wedge skull, strong brow, long snout
     parts.append(fur(sdf.ellipsoid((0, 0.975, 0.58), (0.095, 0.085, 0.11)), FLANK))  # skull
     parts.append(fur(sdf.ellipsoid((0, 1.01, 0.6), (0.075, 0.035, 0.07)), SADDLE, 1.15))  # brow / forehead

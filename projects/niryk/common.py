@@ -74,13 +74,15 @@ class BodySpec:
 
 
 SPECS = {
-    "human_m": BodySpec("human_m", "human", "m", 1.75, shoulder=0.208, hip=0.094, limb=1.12, waist=1.06, hand=1.15),
-    "human_f": BodySpec("human_f", "human", "f", 1.68, shoulder=0.168, hip=0.1, limb=0.96, bust=1.0, waist=0.86,
-                        hand=1.0),
-    "harpin_m": BodySpec("harpin_m", "harpin", "m", 1.72, shoulder=0.185, hip=0.094, limb=1.0, waist=0.96,
-                         hand=1.05),
-    "harpin_f": BodySpec("harpin_f", "harpin", "f", 1.66, shoulder=0.16, hip=0.098, limb=0.9, bust=0.85,
-                         waist=0.8, hand=0.95),
+    # dimorphism must read at ~43 px: broad shoulders/thick limbs vs narrow waist/wide hips;
+    # hands slightly oversized (stylized, readable on the sword grip)
+    "human_m": BodySpec("human_m", "human", "m", 1.75, shoulder=0.228, hip=0.094, limb=1.2, waist=1.08, hand=1.32),
+    "human_f": BodySpec("human_f", "human", "f", 1.68, shoulder=0.164, hip=0.104, limb=0.94, bust=1.0, waist=0.78,
+                        hand=1.15),
+    "harpin_m": BodySpec("harpin_m", "harpin", "m", 1.72, shoulder=0.202, hip=0.094, limb=1.06, waist=0.98,
+                         hand=1.2),
+    "harpin_f": BodySpec("harpin_f", "harpin", "f", 1.66, shoulder=0.158, hip=0.1, limb=0.88, bust=0.85,
+                         waist=0.72, hand=1.1),
 }
 
 
@@ -116,9 +118,11 @@ def joints(spec: BodySpec) -> dict[str, tuple]:
         })
     if spec.harpin:
         J.update({
-            "LeftWing1": ((0.075, 1.37 * s, -0.12), (0.27, 1.69 * s, -0.24)),
-            "LeftWing2": ((0.27, 1.69 * s, -0.24), (0.42, 1.86 * s, -0.29)),
-            "LeftWing3": ((0.42, 1.86 * s, -0.29), (0.56, 0.36 * s, -0.36)),
+            # folded on the back (~30 deg off the back plane): wrist a little above the head,
+            # primaries reaching down behind the legs to ~0.12 m above the ground
+            "LeftWing1": ((0.075, 1.37 * s, -0.12), (0.22, 1.63 * s, -0.2)),
+            "LeftWing2": ((0.22, 1.63 * s, -0.2), (0.31, 1.81 * s, -0.25)),
+            "LeftWing3": ((0.31, 1.81 * s, -0.25), (0.2, 0.12, -0.44)),
         })
     return {k: (np.array(a, float), np.array(b, float)) for k, (a, b) in J.items()}
 
@@ -129,8 +133,10 @@ def mirror(p):
     return p
 
 
-TAIL_POINTS = [(0, 0.93, -0.11), (0, 0.85, -0.27), (0, 0.73, -0.43), (0, 0.6, -0.58), (0, 0.48, -0.74),
-               (0, 0.4, -0.9), (0, 0.38, -1.07)]
+# Harpin tail: an S from the coccyx down to the ground behind the heels, the brush curling up
+# (~1.15 m along the curve). y is scaled by the body height, z by it too.
+TAIL_POINTS = [(0, 0.93, -0.11), (0, 0.8, -0.23), (0, 0.6, -0.31), (0, 0.4, -0.38), (0, 0.2, -0.47),
+               (0, 0.12, -0.64), (0, 0.2, -0.82)]
 
 
 def tail_points(spec: BodySpec):
