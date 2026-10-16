@@ -12,8 +12,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 import pyram3d as p3  # noqa: E402
-from pyram3d import (animation, armature, importer, material, math3d, mesh, noise, physics, primitives,  # noqa: E402
-                     project, render, scene, sculpt, sdf, terrain, viewer)
+from pyram3d import (animation, armature, importer, material, math3d, mesh, noise, palette, physics,  # noqa: E402
+                     primitives, project, render, scene, sculpt, sdf, terrain, viewer)
 from pyram3d.generators import architecture, character, nature, props, vehicles  # noqa: E402
 
 
@@ -67,7 +67,7 @@ def main():
              f"_Generated from pyram3d {p3.__version__} by `tools/gen_api_docs.py` — do not edit by hand._", ""]
     for mod, title in [(mesh, "Mesh (pyram3d.mesh)"), (primitives, "Primitives (pyram3d.primitives)"),
                        (sdf, "SDF modeling (pyram3d.sdf)"), (sculpt, "Sculpting (pyram3d.sculpt)"),
-                       (material, "Materials & textures (pyram3d.material)"), (scene, "Scene graph (pyram3d.scene)"),
+                       (material, "Materials & textures (pyram3d.material)"), (palette, "Palette textures (pyram3d.palette)"), (scene, "Scene graph (pyram3d.scene)"),
                        (animation, "Animation (pyram3d.animation)"), (armature, "Rigging (pyram3d.armature)"),
                        (terrain, "Terrain (pyram3d.terrain)"), (physics, "Physics & effects (pyram3d.physics)"), (render, "Preview rendering (pyram3d.render)"),
                        (project, "Saving (pyram3d.project)"), (viewer, "HTML viewer (pyram3d.viewer)"),

@@ -93,8 +93,28 @@ class SDF:
 
     def displace(self, amount: float = 0.02, scale: float = 4.0, octaves: int = 4, seed: int = 0,
                  func: Callable[[np.ndarray], np.ndarray] | None = None) -> "SDF":
-        """Add noise (or func(points)->(N,)) to the surface: bumps, rock roughness, bark."""
+        """Add noise (or func(points)->(N,) offsets in meters, scaled by amount) to the surface."""
         return Displaced(self, amount, scale, octaves, seed, func)
+
+    def project(self, mesh: Mesh, iterations: int = 3, verts=None, max_step: float | None = None) -> Mesh:
+        """Snap mesh vertices onto this surface (Newton steps along the gradient).
+        Use after subdividing an SDF-generated mesh so new vertices follow the true shape."""
+        idx = np.arange(len(mesh.vertices)) if verts is None else np.asarray(verts)
+        V = mesh.vertices[idx]
+        lo, hi = mesh.bounds()
+        e = max(float((hi - lo).max()) * 1e-4, 1e-6)
+        cap = max_step or float((hi - lo).max()) * 0.02
+        for _ in range(iterations):
+            d = self.dist(V)
+            g = np.stack([self.dist(V + [e, 0, 0]) - self.dist(V - [e, 0, 0]),
+                          self.dist(V + [0, e, 0]) - self.dist(V - [0, e, 0]),
+                          self.dist(V + [0, 0, e]) - self.dist(V - [0, 0, e])], axis=1) / (2 * e)
+            step = (d / np.maximum(np.einsum("ij,ij->i", g, g), 1e-12))[:, None] * g
+            sl = np.linalg.norm(step, axis=1, keepdims=True)
+            V = V - step * np.minimum(1.0, cap / np.maximum(sl, 1e-12))
+        mesh.vertices[idx] = V
+        mesh.normals = None
+        return mesh
 
     def paint(self, color=None, material=None, bone=None) -> "SDF":
         """Set the color/material/bone of every leaf of this shape."""
@@ -110,10 +130,12 @@ class SDF:
     # ---- meshing
     def to_mesh(self, resolution: int = 96, bounds=None, padding: float = 0.05, smooth: bool = True,
                 name: str = "SDFMesh", project_iterations: int = 2, colors: bool | None = None,
-                default_color="#cccccc") -> Mesh:
+                default_color="#cccccc", cell: float | None = None) -> Mesh:
         """Polygonize with naive surface nets (quad mesh).
 
         resolution: grid cells along the longest axis (64 low, 96 default, 160+ detailed).
+        cell      : alternatively, the grid cell size in meters (consistent density across parts;
+                    e.g. 0.012 for game props). Overrides resolution.
         """
         if bounds is None:
             lo, hi = self.bounds()
@@ -123,7 +145,7 @@ class SDF:
         pad = ext.max() * padding + 1e-6
         lo = lo - pad
         hi = hi + pad
-        h = (hi - lo).max() / resolution
+        h = (hi - lo).max() / resolution if cell is None else float(cell)
         n = np.maximum(np.ceil((hi - lo) / h).astype(int) + 1, 2)
         mesh = surface_nets(self, lo, h, n, name=name, project_iterations=project_iterations)
         if not smooth:
@@ -539,7 +561,12 @@ class Displaced(_Op):
 
     def bounds(self):
         lo, hi = self.children[0].bounds()
-        a = abs(self.amount) * 1.5
+        if self.func is not None:  # unknown range: estimate from samples on the bounding box
+            g = np.stack(np.meshgrid(*[np.linspace(lo[k], hi[k], 9) for k in range(3)], indexing="ij"),
+                         axis=-1).reshape(-1, 3)
+            a = float(np.abs(np.asarray(self.func(g))).max()) * abs(self.amount) * 1.5 + 1e-6
+        else:
+            a = abs(self.amount) * 1.5
         return lo - a, hi + a
 
 

@@ -45,6 +45,7 @@ class Mesh:
         self.joints: np.ndarray | None = None
         self.weights: np.ndarray | None = None
         self.shape_keys: dict[str, np.ndarray] = {}
+        self.normals: np.ndarray | None = None  # optional frozen per-vertex normals (see freeze_normals)
         self.smooth_angle = float(smooth_angle)
         self.extras: dict = {}
         if (self.uvs is None) != (self.face_uvs is None):
@@ -78,6 +79,7 @@ class Mesh:
         m.joints = None if self.joints is None else self.joints.copy()
         m.weights = None if self.weights is None else self.weights.copy()
         m.shape_keys = {k: v.copy() for k, v in self.shape_keys.items()}
+        m.normals = None if self.normals is None else self.normals.copy()
         m.smooth_angle = self.smooth_angle
         m.extras = dict(self.extras)
         return m
@@ -155,6 +157,9 @@ class Mesh:
     def corner_normals(self, angle: float | None = None) -> np.ndarray:
         """Per-corner normals honoring the auto-smooth angle (degrees)."""
         angle = self.smooth_angle if angle is None else angle
+        if self.normals is not None and len(self.normals) == len(self.vertices):
+            cv, *_ = self._corners()
+            return m3.normalize(self.normals[cv])
         cv, cf, start, sizes = self._corners()
         fn_unit = self.face_normals()
         if angle <= 0.0:
@@ -230,6 +235,8 @@ class Mesh:
     def transform(self, matrix) -> "Mesh":
         mtx = np.asarray(matrix, dtype=np.float64)
         self.vertices = m3.transform_points(mtx, self.vertices)
+        if self.normals is not None:
+            self.normals = m3.normalize(self.normals @ np.linalg.inv(mtx[:3, :3]))
         for k in self.shape_keys:
             self.shape_keys[k] = m3.transform_points(mtx, self.shape_keys[k])
         if np.linalg.det(mtx[:3, :3]) < 0:
@@ -318,6 +325,10 @@ class Mesh:
                 a = self.shape_keys.get(k, self.vertices)
                 b = o.shape_keys.get(k, o.vertices)
                 self.shape_keys[k] = np.concatenate([a, b])
+            if self.normals is not None or o.normals is not None:
+                na = self.normals if self.normals is not None else self.vertex_normals()
+                nb = o.normals if o.normals is not None else o.vertex_normals()
+                self.normals = np.concatenate([na, nb])
             self.vertices = np.concatenate([self.vertices, o.vertices])
             # materials
             mat_map = []
@@ -386,6 +397,7 @@ class Mesh:
             delta = ((sk[parents] - self.vertices[parents]) * parent_w[..., None]).sum(axis=1)
             self.shape_keys[k] = np.concatenate([sk, pos + delta])
         self.vertices = np.concatenate([self.vertices, pos])
+        self.normals = None  # topology changed: frozen normals no longer valid
         return np.arange(start, start + len(pos))
 
     def remove_unused_vertices(self) -> "Mesh":
@@ -403,6 +415,8 @@ class Mesh:
             self.joints = self.joints[used]
             self.weights = self.weights[used]
         self.shape_keys = {k: v[used] for k, v in self.shape_keys.items()}
+        if self.normals is not None and len(self.normals) == len(used):
+            self.normals = self.normals[used]
         self.faces = [tuple(int(remap[i]) for i in f) for f in self.faces]
         return self
 
@@ -583,9 +597,64 @@ class Mesh:
             self.face_uvs = [tuple(r) for r in uq.tolist()]
 
         self.vertices = new_vertices
+        self.normals = None
         self.shape_keys = new_keys
         self.faces = [tuple(r) for r in quads.tolist()]
         self.face_materials = self.face_materials[cf]
+
+    def subdivide_region(self, faces: FaceSel, levels: int = 1) -> "Mesh":
+        """Linear subdivision of selected faces only, crack-free (neighbours get the edge
+        midpoints inserted as extra polygon corners). Use it to add local detail, e.g.
+        a face on a body, then project onto a surface (SDF.project) or smooth.
+        Face-varying UVs are dropped (re-project UVs afterwards)."""
+        sel = set(int(i) for i in _sel(faces, len(self.faces)))
+        for _ in range(int(levels)):
+            self.uvs = None
+            self.face_uvs = None
+            mid: dict[tuple[int, int], int] = {}
+            pairs = []
+            for fi in sel:
+                f = self.faces[fi]
+                for k in range(len(f)):
+                    a, b = f[k], f[(k + 1) % len(f)]
+                    key = (min(a, b), max(a, b))
+                    if key not in mid:
+                        mid[key] = -1
+                        pairs.append(key)
+            if not pairs:
+                return self
+            pa = np.array(pairs)
+            ids = self._append_vertices(0.5 * (self.vertices[pa[:, 0]] + self.vertices[pa[:, 1]]), pa)
+            for key, vid in zip(pairs, ids.tolist()):
+                mid[key] = vid
+            sel_list = sorted(sel)
+            centers = self._append_vertices(
+                np.array([self.vertices[list(self.faces[fi])].mean(axis=0) for fi in sel_list]),
+                np.array([list(self.faces[fi])[:3] + [self.faces[fi][0]] * 0 for fi in sel_list]))
+            new_faces, new_mats, new_sel = [], [], set()
+            for fi, f in enumerate(self.faces):
+                n = len(f)
+                if fi in sel:
+                    c = int(centers[sel_list.index(fi)])
+                    for k in range(n):
+                        a, b, z = f[k], f[(k + 1) % n], f[k - 1]
+                        new_sel.add(len(new_faces))
+                        new_faces.append((a, mid[(min(a, b), max(a, b))], c, mid[(min(z, a), max(z, a))]))
+                        new_mats.append(self.face_materials[fi])
+                else:
+                    poly = []
+                    for k in range(n):
+                        a, b = f[k], f[(k + 1) % n]
+                        poly.append(a)
+                        m = mid.get((min(a, b), max(a, b)))
+                        if m is not None:
+                            poly.append(m)
+                    new_faces.append(tuple(poly))
+                    new_mats.append(self.face_materials[fi])
+            self.faces = new_faces
+            self.face_materials = np.array(new_mats, dtype=np.int64)
+            sel = new_sel
+        return self
 
     def extrude(self, faces: FaceSel = None, distance: float = 0.1, offset=None,
                 individual: bool = False, return_faces: bool = False):
@@ -746,6 +815,7 @@ class Mesh:
     # ----------------------------------------------------------- deformers
     def deform(self, func: Callable[[np.ndarray], np.ndarray]) -> "Mesh":
         """Apply func(points (N,3)) -> (N,3) to all vertices (and shape keys)."""
+        self.normals = None
         self.vertices = np.asarray(func(self.vertices.copy()), dtype=np.float64)
         for k in self.shape_keys:
             self.shape_keys[k] = np.asarray(func(self.shape_keys[k].copy()), dtype=np.float64)
@@ -753,6 +823,7 @@ class Mesh:
 
     def smooth(self, iterations: int = 1, factor: float = 0.5, verts=None, keep_boundary: bool = True) -> "Mesh":
         """Laplacian smoothing (optionally restricted to a vertex selection)."""
+        self.normals = None
         edges = self.edges()
         nv = len(self.vertices)
         deg = np.bincount(edges.reshape(-1), minlength=nv).astype(np.float64)
@@ -772,6 +843,7 @@ class Mesh:
     def displace(self, amount: float = 0.05, scale: float = 2.0, octaves: int = 4, seed: int = 0,
                  func: Callable[[np.ndarray], np.ndarray] | None = None) -> "Mesh":
         """Push vertices along their normals by fBm noise (or by func(points)->(N,) heights)."""
+        self.normals = None
         from .noise import fbm3
         vn = self.vertex_normals()
         h = func(self.vertices) if func is not None else fbm3(self.vertices * scale, octaves=octaves, seed=seed)
@@ -953,6 +1025,13 @@ class Mesh:
 
     def shade_smooth(self, angle: float = 180.0) -> "Mesh":
         self.smooth_angle = angle
+        return self
+
+    def freeze_normals(self) -> "Mesh":
+        """Store smooth per-vertex normals so they survive splitting the mesh into parts
+        (modular characters: seams between parts stay invisible). Edits that add
+        vertices clear them; call again after editing."""
+        self.normals = self.vertex_normals()
         return self
 
     # ------------------------------------------------------------- shape keys

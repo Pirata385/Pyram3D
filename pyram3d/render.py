@@ -46,6 +46,8 @@ class _Batch:
         self.M = []   # (T,) material id
         self.E = []   # (T,3) bool: is polygon edge (for wireframe)
         self.F = []   # (T,) bool: triangle belongs to a flat mesh (ground/water planes don't cast shadows)
+        self.O = []   # (T,) int: object id (outlines are drawn between different objects)
+        self.groups = {}  # node.extras["outline_group"] -> shared id (no ink lines between modular parts)
         self.mats = []
 
     def finish(self):
@@ -122,6 +124,12 @@ def _collect(scene, time: float | None, animation=None):
             b.M.append(M)
             b.E.append(E)
             b.F.append(np.full(len(P), bool(mesh.size[1] < 1e-4)))
+            group = node.extras.get("outline_group")
+            if group is not None:
+                key = b.groups.setdefault(group, 10_000 + len(b.groups))
+            else:
+                key = len(b.O)
+            b.O.append(np.full(len(P), key))
         return b
     finally:
         if snap is not None:
@@ -242,7 +250,8 @@ def render(scene, path=None, width: int = 800, height: int = 600, view="three_qu
            style: str = "realistic", time: float | None = None, animation=None, background=None,
            shadows: bool = True, ground: bool = True, supersample: int = 2, yfov: float = 35.0,
            target=None, distance: float | None = None, bloom: float = 0.6, fog: float = 0.0,
-           vignette: float = 0.25, exposure: float = 1.0) -> np.ndarray:
+           vignette: float = 0.25, exposure: float = 1.0, pixel: int = 1, outline: bool | None = None,
+           rim: float | None = None) -> np.ndarray:
     """Render the scene and optionally save a PNG. Returns the (H, W, 3) uint8 image.
 
     view   : "front" | "back" | "left" | "right" | "top" | "three_quarter" | direction vector
@@ -253,7 +262,22 @@ def render(scene, path=None, width: int = 800, height: int = 600, view="three_qu
     fog    : atmospheric fog density per meter (e.g. 0.02 for landscapes)
     vignette: darkening of the image corners (0 = off)
     exposure: brightness multiplier before tone mapping
+    pixel  : > 1 renders at 1/pixel resolution and upscales with hard pixels (pixel-art preview)
+    outline: dark silhouette/crease lines (default on for "toon")
+    rim    : rim-light strength (default 0.6 for "toon", 0 otherwise) — Hades-like edge glow
     """
+    if pixel > 1:
+        small = render(scene, None, max(width // pixel, 8), max(height // pixel, 8), view, camera, style, time,
+                       animation, background, shadows, ground, 1, yfov, target, distance, bloom, fog, vignette,
+                       exposure, 1, outline, rim)
+        big = np.repeat(np.repeat(small, pixel, axis=0), pixel, axis=1)
+        if path is not None:
+            write_png(path, big)
+        return big
+    if outline is None:
+        outline = style == "toon"
+    if rim is None:
+        rim = 0.6 if style == "toon" else 0.0
     ss = max(int(supersample), 1)
     W, H = width * ss, height * ss
     batch = _collect(scene, time, animation)
@@ -339,6 +363,9 @@ def render(scene, path=None, width: int = 800, height: int = 600, view="three_qu
         else:
             sh = shadow_fn(pos, nrm) if shadow_fn is not None else np.ones(len(pos))
             col = _shade(pos, nrm, view_dir, base, rough, metal, lights, sh, style, scene.ambient)
+            if rim > 0:
+                fr = np.clip(1 - np.einsum("ij,ij->i", nrm, view_dir), 0, 1) ** 3
+                col = col + base * 0.5 * rim * fr[:, None] + rim * 0.25 * fr[:, None]
             col = col + emis
             col = np.where(unlit[:, None], base + emis, col)
         col = col * exposure
@@ -377,8 +404,14 @@ def render(scene, path=None, width: int = 800, height: int = 600, view="three_qu
             if hdr is not None:
                 hdr[tmask] = hdr[tmask] * (1 - a) + lin * a
 
-    if style == "toon" and mask.any():
-        img = _outline(img, depth, tri_id, ss)
+    if outline and mask.any():
+        obj = np.concatenate(batch.O) if batch.O else np.zeros(len(P), int)
+        ndc = np.where(np.isfinite(depth), depth, 1.0)
+        lin_depth = 2 * far * near / ((far + near) - ndc * (far - near))
+        lin_depth[~mask] = np.inf
+        footprint = 2 * math.tan(math.radians(fov) / 2) / H  # world size of one pixel per meter of depth
+        objmap = np.where(mask, obj[np.maximum(tri_id, 0)], -1)
+        img = _outline(img, lin_depth, objmap, footprint, ss)
 
     if hdr is not None:
         lum = hdr.max(axis=2)
@@ -631,26 +664,33 @@ def _ground_shadow(img, mask, cam_w, proj, W, H, ground_y, shadow_fn, lo, hi, st
     return img
 
 
-def _outline(img, depth, tri_id, ss):
-    d = np.where(np.isfinite(depth), depth, 1.0)
-    edge = np.zeros(d.shape, dtype=bool)
+def _outline(img, lin_depth, objmap, footprint, ss):
+    """Ink lines on silhouettes, between different objects and across depth discontinuities."""
+    edge = np.zeros(lin_depth.shape, dtype=bool)
+    fin = np.where(np.isfinite(lin_depth), lin_depth, 1e9)
     for ax in (0, 1):
-        dd = np.abs(np.diff(d, axis=ax))
-        e = dd > 0.002
+        a = np.take(fin, np.arange(fin.shape[ax] - 1), axis=ax)
+        b = np.take(fin, np.arange(1, fin.shape[ax]), axis=ax)
+        near_d = np.minimum(a, b)
+        jump = np.abs(a - b) > 4.0 * footprint * near_d + 1e-6
+        oa = np.take(objmap, np.arange(objmap.shape[ax] - 1), axis=ax)
+        ob = np.take(objmap, np.arange(1, objmap.shape[ax]), axis=ax)
+        e = jump | (oa != ob)
+        # draw the line on the nearer pixel so silhouettes sit on the object
+        mark_a = e & (a <= b)
+        mark_b = e & (b < a)
         if ax == 0:
-            edge[:-1] |= e
+            edge[:-1] |= mark_a
+            edge[1:] |= mark_b
         else:
-            edge[:, :-1] |= e
-    obj = tri_id >= 0
-    sil = obj != np.roll(obj, 1, axis=0)
-    sil |= obj != np.roll(obj, 1, axis=1)
-    edge |= sil
+            edge[:, :-1] |= mark_a
+            edge[:, 1:] |= mark_b
     k = max(ss, 1)
     grow = edge.copy()
     for s in range(1, k):
         grow |= np.roll(edge, s, axis=0) | np.roll(edge, s, axis=1)
     img = img.copy()
-    img[grow] = img[grow] * 0.1
+    img[grow] = img[grow] * 0.12
     return img
 
 
