@@ -281,8 +281,8 @@ def wings_tail(rig: Rig, pose, t, clip, phase, intensity=1.0):
         o = 0.15 + 0.85 * math.exp(-((phase - k) / 0.18) ** 2)  # flare at the strike
     elif clip == "Hit":
         o = 0.35 * math.sin(math.pi * phase)
-    elif clip == "Death":  # flare as the knees give, then fold half over the body
-        o = 0.45 * smooth(phase / 0.3) - 0.4 * smooth((phase - 0.35) / 0.4)
+    elif clip == "Death":  # flare as the knees give, then settle half open beside the body
+        o = 0.45 * smooth(phase / 0.3) - 0.15 * smooth((phase - 0.35) / 0.4)  # (folded they'd sink in the ground)
     else:  # Idle breathing (~3-5 deg at the shoulder)
         o = 0.07 + 0.05 * math.sin(phase * 2 * math.pi)
     for side, sgn in (("Left", 1), ("Right", -1)):

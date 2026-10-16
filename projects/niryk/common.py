@@ -136,8 +136,8 @@ def mirror(p):
 
 # Harpin tail: an S from the coccyx (under the tunic hem) down behind the legs, the brush held
 # ~0.4 m above the ground and curling up (~1.1 m along the curve). y and z scale with the body.
-TAIL_POINTS = [(0, 0.93, -0.11), (0, 0.78, -0.22), (0, 0.6, -0.31), (0, 0.46, -0.44), (0, 0.4, -0.62),
-               (0, 0.44, -0.8), (0, 0.56, -0.93)]  # lowest point ~0.4 m: the brush never drags
+TAIL_POINTS = [(0, 0.93, -0.11), (0, 0.78, -0.22), (0, 0.6, -0.31), (0, 0.46, -0.44), (0.02, 0.4, -0.62),
+               (0.08, 0.44, -0.79), (0.17, 0.55, -0.9)]  # lowest ~0.4 m; the brush curls up and ~25 deg aside
 
 
 def tail_points(spec: BodySpec):

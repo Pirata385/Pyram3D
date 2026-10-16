@@ -89,9 +89,17 @@ def tail(spec: BodySpec):
     # fox brush (~0.45 m): widest (r 0.13) past the middle, tapering to a point, lighter tip
     brush = plume(sdf.chain([tuple(a + (b - a) * 0.3), tuple(b + (c - b) * 0.2), tuple(c + d * 0.04)],
                             [0.095, 0.13, 0.06], k=0.06), 0.88)
-    tip = plume(sdf.round_cone(tuple(c), tuple(c + d * 0.17), 0.06, 0.008), 1.0)
-    shape = shape.smooth_union(brush, 0.05).smooth_union(tip, 0.03)
-    return shape.displace(**_tufts(0.012, 24, 7))
+    # the tip ends in 4 pointed locks (not a cotton ball)
+    side = np.cross(d, np.array([0.0, 1.0, 0.0]))
+    side /= np.linalg.norm(side)
+    up = np.cross(side, d)
+    locks = []
+    for k, (u, v) in enumerate(((0.35, 0.0), (-0.35, 0.0), (0.0, 0.35), (0.0, -0.3))):
+        dd = d + side * u + up * v
+        dd /= np.linalg.norm(dd)
+        locks.append(plume(sdf.round_cone(tuple(c - d * 0.02), tuple(c + dd * 0.16), 0.045, 0.004), 1.0 - 0.05 * (k % 2)))
+    shape = shape.smooth_union(brush, 0.05).smooth_union(sdf.smooth_union(*locks, k=0.015), 0.02)
+    return shape.displace(**_tufts(0.006, 24, 7))
 
 
 def ruff(spec: BodySpec):

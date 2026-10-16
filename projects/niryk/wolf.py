@@ -135,7 +135,7 @@ def wolf_sdf():
     # neck and an angular mane swept back over the shoulders
     parts.append(fur(sdf.round_cone((0, 0.82, 0.28), (0, 0.94, 0.48), 0.17, 0.115), FLANK))
     parts.append(fur(sdf.ellipsoid((0, 0.92, 0.35), (0.175, 0.15, 0.14)), SADDLE, 1.1))  # heavy mane
-    parts += _spikes((0, 0.97, 0.4), (0, 0.35, -1), 10, 0.21, 0.045, (0.11, 0.05, 0.06), SADDLE, seed=1, shade=1.05)
+    parts += _spikes((0, 0.95, 0.4), (0, 0.15, -1), 10, 0.15, 0.045, (0.11, 0.04, 0.06), FLANK, seed=1, shade=0.92)  # low, swept back
     parts += _spikes((0, 0.93, 0.18), (0, 0.4, -1), 6, 0.17, 0.04, (0.1, 0.03, 0.05), SADDLE, seed=7, shade=1.0)  # over the shoulder blades
     parts += [p.mirror_x() for p in _spikes((0.13, 0.88, 0.38), (0.35, 0.1, -1), 5, 0.16, 0.04, (0.02, 0.06, 0.05), FLANK, seed=2)]
     parts += _spikes((0, 0.6, 0.3), (0, -0.35, 0.6), 4, 0.07, 0.028, (0.06, 0.02, 0.02), PALE, seed=3)  # short chest tuft
@@ -151,11 +151,11 @@ def wolf_sdf():
     parts.append(fur(ear, SADDLE).mirror_x())
     # legs: muscular tops, gray shanks, pale only at the paws
     for (a, b, r1, r2, c) in [
-        ((0.13, 0.76, 0.26), (0.14, 0.45, 0.2), 0.1, 0.06, FLANK),  # heavy forearms (+30%)
-        ((0.14, 0.45, 0.2), (0.13, 0.13, 0.25), 0.052, 0.038, FLANK),
+        ((0.13, 0.76, 0.26), (0.14, 0.45, 0.2), 0.115, 0.069, FLANK),  # heavy forearms
+        ((0.14, 0.45, 0.2), (0.13, 0.13, 0.25), 0.06, 0.044, FLANK),
         ((0.13, 0.13, 0.25), (0.13, 0.035, 0.33), 0.034, 0.032, PALE),
-        ((0.12, 0.73, -0.42), (0.13, 0.46, -0.32), 0.095, 0.054, FLANK),
-        ((0.13, 0.46, -0.32), (0.13, 0.21, -0.5), 0.045, 0.032, FLANK),
+        ((0.12, 0.73, -0.42), (0.13, 0.46, -0.32), 0.11, 0.062, FLANK),
+        ((0.13, 0.46, -0.32), (0.13, 0.21, -0.5), 0.052, 0.037, FLANK),
         ((0.13, 0.21, -0.5), (0.13, 0.04, -0.44), 0.03, 0.028, FLANK),
         ((0.13, 0.035, -0.45), (0.13, 0.03, -0.37), 0.034, 0.03, PALE),
     ]:

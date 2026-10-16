@@ -18,8 +18,11 @@ from common import BodySpec, joints
 import pyram3d as p3
 from pyram3d import sdf
 
-STEEL = p3.Material("Metal_Steel", "#c9d0d8", metallic=0.7, roughness=0.35)
-EDGE = p3.Material("Metal_Edge", "#eef3f8", metallic=0.7, roughness=0.25)
+# armor steel sits mid-gray so the toon light band doesn't turn the plates into a white shirt;
+# narrow highlights (keel, blade edges) carry the shine
+STEEL = p3.Material("Metal_Steel", "#8f98aa", metallic=0.7, roughness=0.35)
+EDGE = p3.Material("Metal_Edge", "#e6ecf5", metallic=0.7, roughness=0.25)
+BLADE = p3.Material("Metal_Blade", "#aeb8c8", metallic=0.7, roughness=0.3)
 STEEL_DARK = p3.Material("Metal_SteelDark", "#6c7480", metallic=0.7, roughness=0.45)
 BRASS = p3.Material("Metal_Brass", "#c9a24a", metallic=0.8, roughness=0.35)
 GRIP = p3.Material("Leather_Grip", "#5a3a26", roughness=0.85)
@@ -36,7 +39,7 @@ def sword_iron() -> p3.Mesh:
     blade = p3.sweep([(0, L0, 0), (0, (L0 + L1) / 2, 0), (0, L1 - 0.06, 0), (0, L1, 0)], shape=shape,
                      radius=lambda t: 0.04 * max(0.0, 1 - max(0.0, (t - 0.8) / 0.2)) ** 0.85 + 0.0015, segments=8, up=(0, 0, 1))
     blade.rotate((0, 90, 0))  # flat of the blade faces +-Z, edges along X like the crossguard
-    blade.set_material(STEEL)
+    blade.set_material(BLADE)
     fn = blade.face_normals()
     blade.set_material(EDGE, np.flatnonzero(np.abs(fn[:, 0]) > 0.5))  # bevels catch the light
     parts.append(blade)
@@ -96,7 +99,7 @@ def cuirass(spec: BodySpec):
     # brass trim: a 1.2 cm band of the plate's skin around the neck and arm openings
     trim = shell().intersect(neck().round(0.012).union(arm().round(0.012))).subtract(neck().union(arm()))
     trim = _mat(trim.round(0.004), BRASS)
-    keel = _mat(sdf.capsule(_p(spec, 0, 1.05, 0.105 + t * 0.5), _p(spec, 0, 1.37, 0.12 + t * 0.5), 0.014), STEEL)
+    keel = _mat(sdf.capsule(_p(spec, 0, 1.05, 0.105 + t * 0.5), _p(spec, 0, 1.37, 0.12 + t * 0.5), 0.014), EDGE)  # highlight
     # fauld: 3 lames below the plate, stepping out
     lames = []
     for k in range(3):
