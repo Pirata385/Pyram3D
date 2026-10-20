@@ -1,6 +1,6 @@
 """Builds the 4 playable bodies of Niryk: human_m, human_f, harpin_m, harpin_f.
 
-    python projects/niryk/build_characters.py [name ...] [--fast]
+    python projects/niryk/protótipo_1/build_characters.py [name ...] [--fast]
 
 Each GLB (exports/characters/<name>.glb) holds the rig (+ sockets), the body, the starter outfit,
 every hair style as a separate node (Hair_<style>; the game shows one), eyes, Harpin wings, and

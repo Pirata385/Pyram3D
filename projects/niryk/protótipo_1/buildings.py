@@ -1,6 +1,6 @@
 """Village structures of Rondoria (3D, front faces +Z, standing on y = 0).
 
-    python projects/niryk/buildings.py
+    python projects/niryk/protótipo_1/buildings.py
 
 Footprints must match src/shared/world/worldgen.ts (STRUCTURES) in the game repo.
 Textures are small painted tiles at 32 px per meter with nearest filtering, so the buildings

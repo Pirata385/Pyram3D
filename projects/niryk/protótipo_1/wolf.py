@@ -1,6 +1,6 @@
 """The wolf of the Campos de Rondoria: stylized, angular (Hades-like), rigged and animated.
 
-    python projects/niryk/wolf.py [--fast]
+    python projects/niryk/protótipo_1/wolf.py [--fast]
 
 ~1.65 m nose to tail tip, 0.8 m at the shoulder. Dark saddle, gray flanks, pale belly, chest
 ruff and muzzle, yellow eyes; a jaw bone opens the mouth for the bite. Clips: Idle, Walk, Run
