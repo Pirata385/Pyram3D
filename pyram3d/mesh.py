@@ -420,6 +420,61 @@ class Mesh:
         self.faces = [tuple(int(remap[i]) for i in f) for f in self.faces]
         return self
 
+    def split_nonmanifold(self) -> "Mesh":
+        """Make edges manifold by splitting vertices: around every vertex of a non-manifold edge
+        (more than 2 faces, e.g. two sheets of an SDF mesh touching inside one grid cell), faces
+        are grouped into fans connected through manifold edges and each fan gets its own copy of
+        the vertex. Positions are unchanged (the sheets still touch, but no longer share edges)."""
+        if not self.faces:
+            return self
+        for _ in range(3):  # a split can expose a neighbour's non-manifold edge: repeat
+            cv, cf, start, sizes, nxt, prv, edges, inv, counts = self._edge_table()
+            bad = np.flatnonzero(counts > 2)
+            if not len(bad):
+                break
+            todo = np.unique(edges[bad].reshape(-1))
+            order = np.argsort(cv, kind="stable")
+            sv = cv[order]
+            lo_i = np.searchsorted(sv, todo, side="left")
+            hi_i = np.searchsorted(sv, todo, side="right")
+            faces = [list(f) for f in self.faces]
+            new_pos, parents, assign = [], [], []
+            for v, a, b in zip(todo.tolist(), lo_i.tolist(), hi_i.tolist()):
+                corners = order[a:b].tolist()
+                parent = {c: c for c in corners}
+
+                def find(c):
+                    while parent[c] != c:
+                        parent[c] = parent[parent[c]]
+                        c = parent[c]
+                    return c
+                by_edge: dict[int, list[int]] = {}
+                for c in corners:  # the two edges of corner c's face that touch v
+                    for e in (int(inv[c]), int(inv[prv[c]])):
+                        by_edge.setdefault(e, []).append(c)
+                for e, cs in by_edge.items():
+                    if counts[e] == 2 and len(cs) == 2:
+                        ra, rb = find(cs[0]), find(cs[1])
+                        if ra != rb:
+                            parent[ra] = rb
+                groups: dict[int, list[int]] = {}
+                for c in corners:
+                    groups.setdefault(find(c), []).append(c)
+                for gi, cs in enumerate(groups.values()):
+                    if gi == 0:
+                        continue
+                    new_pos.append(self.vertices[v])
+                    parents.append(v)
+                    assign.append(cs)
+            if not new_pos:
+                break
+            ids = self._append_vertices(np.array(new_pos), np.array(parents)[:, None])
+            for nid, cs in zip(ids.tolist(), assign):
+                for c in cs:
+                    faces[int(cf[c])][int(c - start[cf[c]])] = nid
+            self.faces = [tuple(f) for f in faces]
+        return self
+
     def weld(self, threshold: float = 1e-5) -> "Mesh":
         """Merge vertices closer than `threshold` (merge by distance)."""
         if len(self.vertices) == 0:
@@ -839,6 +894,21 @@ class Mesh:
             upd = mask & (deg > 0)
             self.vertices[upd] += factor * (avg[upd] - self.vertices[upd])
         return self
+
+    def smooth_taubin(self, iterations: int = 10, lam: float = 0.5, mu: float = -0.53, verts=None,
+                      keep_boundary: bool = True) -> "Mesh":
+        """Volume-preserving smoothing (Taubin lambda|mu): fades bumps and grid ripples
+        without the shrinking of plain Laplacian smoothing."""
+        from .remesh import taubin_smooth
+        return taubin_smooth(self, iterations, lam, mu, verts, keep_boundary)
+
+    def decimate(self, target, max_edge=None, keep_boundary: bool = True, **kw) -> "Mesh":
+        """Quadric-error edge-collapse simplification down to `target` triangles (int) or a
+        fraction of the current count (float < 1). `max_edge` (meters, or fn(points)->(N,))
+        caps edge lengths. Triangulates; keeps colors/skin weights; drops UVs and shape keys.
+        See pyram3d.remesh.decimate for the other options."""
+        from .remesh import decimate
+        return decimate(self, target, max_edge=max_edge, keep_boundary=keep_boundary, **kw)
 
     def displace(self, amount: float = 0.05, scale: float = 2.0, octaves: int = 4, seed: int = 0,
                  func: Callable[[np.ndarray], np.ndarray] | None = None) -> "Mesh":

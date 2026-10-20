@@ -86,11 +86,18 @@ def _collect(scene, time: float | None, animation=None):
                 tmp = _M(verts, mesh.faces)
                 tmp.joints, tmp.weights = mesh.joints, mesh.weights
                 wp = node.skin.pose_vertices(tmp)
-                # recompute normals on the posed mesh
-                posed = mesh.copy()
-                posed.vertices = wp
-                posed.shape_keys = {}
-                cn = posed.corner_normals()
+                if mesh.normals is not None and len(mesh.normals) == len(verts):
+                    # frozen (e.g. analytic) normals: skin them like the vertices
+                    J = node.skin.joint_matrices()[:, :3, :3]
+                    vn = np.zeros_like(mesh.normals)
+                    for k in range(mesh.joints.shape[1]):
+                        vn += mesh.weights[:, k, None] * np.einsum("nij,nj->ni", J[mesh.joints[:, k]], mesh.normals)
+                    cn = m3.normalize(vn)[cv]
+                else:  # recompute normals on the posed mesh
+                    posed = mesh.copy()
+                    posed.vertices = wp
+                    posed.shape_keys = {}
+                    cn = posed.corner_normals()
                 P = wp[cv[tris]]
                 N = cn[tris]
             else:

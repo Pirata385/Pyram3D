@@ -1,0 +1,17 @@
+{
+ "about": "Pyram3D nature set for Niryk prototype 2 (projects/niryk/protótipo_2/nature.py). Meters, +Y up, origin at the base center. collider: radius of the solid cylinder at the base (0 = walk through). radius: visual footprint. scale: suggested uniform random scale range. wind.sway: suggested top displacement in meters for the listed materials, weighted by height above the ground (vertex y / height). canopy: [min y, max y] of the leaves. Colors are vertex colors (COLOR_0); materials are white.",
+ "assets": {
+  "bush_1": {"file": "bush_1.glb", "kind": "bush", "collider": 0.48, "height": 1.02, "radius": 0.956, "tris": 582, "scale": [0.8, 1.3], "materials": ["Leaves"], "wind": {"sway": 0.04, "materials": ["Leaves"]}},
+  "flowers_1": {"file": "flowers_1.glb", "kind": "flowers", "collider": 0.0, "height": 0.322, "radius": 0.2, "tris": 164, "scale": [0.8, 1.25], "materials": ["Flower", "Grass"], "wind": {"sway": 0.05, "materials": ["Grass", "Flower"]}},
+  "flowers_2": {"file": "flowers_2.glb", "kind": "flowers", "collider": 0.0, "height": 0.322, "radius": 0.2, "tris": 164, "scale": [0.8, 1.25], "materials": ["Flower", "Grass"], "wind": {"sway": 0.05, "materials": ["Grass", "Flower"]}},
+  "flowers_3": {"file": "flowers_3.glb", "kind": "flowers", "collider": 0.0, "height": 0.322, "radius": 0.2, "tris": 164, "scale": [0.8, 1.25], "materials": ["Flower", "Grass"], "wind": {"sway": 0.05, "materials": ["Grass", "Flower"]}},
+  "grass_1": {"file": "grass_1.glb", "kind": "grass", "collider": 0.0, "height": 0.336, "radius": 0.209, "tris": 70, "scale": [0.7, 1.35], "materials": ["Grass"], "wind": {"sway": 0.05, "materials": ["Grass"]}},
+  "log_1": {"file": "log_1.glb", "kind": "log", "collider": 0.0, "height": 0.627, "radius": 0.981, "tris": 272, "scale": [0.85, 1.2], "materials": ["Bark", "Wood"], "capsule": [[-0.9, 0.17, 0.0], [0.9, 0.17, 0.0], 0.2]},
+  "oak_1": {"file": "oak_1.glb", "kind": "tree", "collider": 0.4, "height": 6.927, "radius": 3.453, "tris": 1912, "scale": [0.85, 1.2], "materials": ["Bark", "Leaves"], "wind": {"sway": 0.1, "materials": ["Leaves"]}, "canopy": [2.9, 6.9]},
+  "oak_2": {"file": "oak_2.glb", "kind": "tree", "collider": 0.37, "height": 7.45, "radius": 3.056, "tris": 1970, "scale": [0.85, 1.2], "materials": ["Bark", "Leaves"], "wind": {"sway": 0.1, "materials": ["Leaves"]}, "canopy": [3.2, 7.5]},
+  "pine_1": {"file": "pine_1.glb", "kind": "tree", "collider": 0.27, "height": 9.05, "radius": 2.593, "tris": 1058, "scale": [0.8, 1.2], "materials": ["Bark", "Leaves"], "wind": {"sway": 0.07, "materials": ["Leaves"]}, "canopy": [1.6, 9.05]},
+  "rock_1": {"file": "rock_1.glb", "kind": "rock", "collider": 0.33, "height": 0.41, "radius": 0.429, "tris": 244, "scale": [0.7, 1.4], "materials": ["Rock"]},
+  "rock_2": {"file": "rock_2.glb", "kind": "rock", "collider": 0.94, "height": 1.291, "radius": 1.381, "tris": 312, "scale": [0.8, 1.25], "materials": ["Rock"]},
+  "stump_1": {"file": "stump_1.glb", "kind": "stump", "collider": 0.3, "height": 0.447, "radius": 0.47, "tris": 318, "scale": [0.85, 1.25], "materials": ["Bark", "Wood"]}
+ }
+}

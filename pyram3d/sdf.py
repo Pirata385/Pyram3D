@@ -116,6 +116,15 @@ class SDF:
         mesh.normals = None
         return mesh
 
+    def gradient(self, p: np.ndarray, eps: float = 1e-4) -> np.ndarray:
+        """Unit gradient of the field at points (N,3) (central differences): the exact smooth
+        surface normal for points on the surface."""
+        p = np.asarray(p, dtype=np.float64)
+        g = np.stack([self.dist(p + [eps, 0, 0]) - self.dist(p - [eps, 0, 0]),
+                      self.dist(p + [0, eps, 0]) - self.dist(p - [0, eps, 0]),
+                      self.dist(p + [0, 0, eps]) - self.dist(p - [0, 0, eps])], axis=1)
+        return m3.normalize(g)
+
     def paint(self, color=None, material=None, bone=None) -> "SDF":
         """Set the color/material/bone of every leaf of this shape."""
         for leaf in self.leaves():
@@ -130,12 +139,15 @@ class SDF:
     # ---- meshing
     def to_mesh(self, resolution: int = 96, bounds=None, padding: float = 0.05, smooth: bool = True,
                 name: str = "SDFMesh", project_iterations: int = 2, colors: bool | None = None,
-                default_color="#cccccc", cell: float | None = None) -> Mesh:
+                default_color="#cccccc", cell: float | None = None, band: float = 3.0) -> Mesh:
         """Polygonize with naive surface nets (quad mesh).
 
         resolution: grid cells along the longest axis (64 low, 96 default, 160+ detailed).
         cell      : alternatively, the grid cell size in meters (consistent density across parts;
                     e.g. 0.012 for game props). Overrides resolution.
+        band      : narrow-band safety factor of big grids (the field's Lipschitz bound): 3 is safe
+                    for displaced/noisy shapes; ~1.5 is enough for unions of plain primitives and
+                    evaluates far fewer points.
         """
         if bounds is None:
             lo, hi = self.bounds()
@@ -147,7 +159,7 @@ class SDF:
         hi = hi + pad
         h = (hi - lo).max() / resolution if cell is None else float(cell)
         n = np.maximum(np.ceil((hi - lo) / h).astype(int) + 1, 2)
-        mesh = surface_nets(self, lo, h, n, name=name, project_iterations=project_iterations)
+        mesh = surface_nets(self, lo, h, n, name=name, project_iterations=project_iterations, band=band)
         if not smooth:
             mesh.smooth_angle = 0.0
         self._assign_attributes(mesh, colors, default_color)
@@ -427,11 +439,40 @@ class _Op(SDF):
         return np.concatenate([c.leaf_dists(p) for c in self.children], axis=1)
 
 
+def _cached_bounds(shape):
+    b = shape.__dict__.get("_bounds_cache")
+    if b is None:
+        lo, hi = shape.bounds()
+        b = (np.asarray(lo, dtype=np.float64), np.asarray(hi, dtype=np.float64))
+        shape.__dict__["_bounds_cache"] = b
+    return b
+
+
+def _box_dist(p, lo, hi):
+    q = np.maximum(lo - p, p - hi)
+    return np.sqrt((np.maximum(q, 0) ** 2).sum(axis=1)) + np.minimum(q.max(axis=1), 0)
+
+
+def _dist_near(child, p, limit):
+    """child.dist(p), evaluated only where the child's bounding box is closer than `limit`
+    (elsewhere the box distance, a lower bound that is >= limit, stands in). Big composite
+    shapes (characters) skip most of their parts for most points this way."""
+    lo, hi = _cached_bounds(child)
+    bd = _box_dist(p, lo, hi)
+    m = bd < limit
+    if m.all():
+        return child.dist(p)
+    out = bd
+    if m.any():
+        out[m] = child.dist(p[m])
+    return out
+
+
 class Union(_Op):
     def dist(self, p):
         d = self.children[0].dist(p)
         for c in self.children[1:]:
-            d = np.minimum(d, c.dist(p))
+            d = np.minimum(d, _dist_near(c, p, d))
         return d
 
     def bounds(self):
@@ -445,7 +486,8 @@ class SmoothUnion(_Op):
         self.k = k
 
     def dist(self, p):
-        return _smin(self.children[0].dist(p), self.children[1].dist(p), self.k)
+        a = self.children[0].dist(p)
+        return _smin(a, _dist_near(self.children[1], p, a + self.k), self.k)
 
     def bounds(self):
         (a0, a1), (b0, b1) = self.children[0].bounds(), self.children[1].bounds()
@@ -458,7 +500,8 @@ class Subtract(_Op):
         self.k = k
 
     def dist(self, p):
-        return _smax(self.children[0].dist(p), -self.children[1].dist(p), self.k)
+        a = self.children[0].dist(p)
+        return _smax(a, -_dist_near(self.children[1], p, self.k - a), self.k)
 
     def leaf_dists(self, p):
         # material of the cut surface comes from the cutter
@@ -633,17 +676,61 @@ def chain(points, radii, k: float = 0.02, **kw) -> SDF:
 # surface nets
 # ---------------------------------------------------------------------------
 
-def surface_nets(f: SDF, lo: np.ndarray, h: float, n: np.ndarray, name: str = "SDFMesh",
-                 project_iterations: int = 2, chunk: int = 2_000_000) -> Mesh:
+def _grid_values(f: SDF, lo: np.ndarray, h: float, n, chunk: int = 2_000_000, block: int = 4,
+                 band: float = 3.0) -> np.ndarray:
+    """SDF values on the (nx, ny, nz) grid. Large grids are evaluated narrow-band: a coarse pass
+    every `block` cells, then full resolution only inside blocks that may hold the surface (the
+    rest keeps the sign of the nearest coarse sample). `band` is a safety factor for SDFs that
+    are not exact distances (smooth unions, ellipsoids, custom fields)."""
     nx, ny, nz = (int(v) for v in n)
-    xs = lo[0] + np.arange(nx) * h
-    ys = lo[1] + np.arange(ny) * h
-    zs = lo[2] + np.arange(nz) * h
-    G = np.stack(np.meshgrid(xs, ys, zs, indexing="ij"), axis=-1).reshape(-1, 3)
-    vals = np.empty(len(G))
-    for s in range(0, len(G), chunk):
-        vals[s:s + chunk] = f.dist(G[s:s + chunk])
-    V = vals.reshape(nx, ny, nz)
+
+    def evaluate(ix, iy, iz):
+        G = np.stack(np.meshgrid(lo[0] + ix * h, lo[1] + iy * h, lo[2] + iz * h, indexing="ij"), axis=-1)
+        shp = G.shape[:3]
+        G = G.reshape(-1, 3)
+        out = np.empty(len(G))
+        for s in range(0, len(G), chunk):
+            out[s:s + chunk] = f.dist(G[s:s + chunk])
+        return out.reshape(shp)
+
+    full = [np.arange(k) for k in (nx, ny, nz)]
+    if nx * ny * nz < 400_000 or block < 2:
+        return evaluate(*full)
+    cidx = [np.unique(np.append(np.arange(0, k, block), k - 1)) for k in (nx, ny, nz)]
+    C = evaluate(*cidx)
+    # a block may hold the surface if a corner is closer than the block diagonal (x band)
+    near_c = np.abs(C) < band * block * h * math.sqrt(3.0)
+    blk = near_c[:-1, :-1, :-1].copy()
+    for (i, j, k) in [(i, j, k) for i in (0, 1) for j in (0, 1) for k in (0, 1)][1:]:
+        blk |= near_c[i:near_c.shape[0] - 1 + i, j:near_c.shape[1] - 1 + j, k:near_c.shape[2] - 1 + k]
+    # fill from the nearest coarse sample, then refine the near blocks
+    near_idx = [None, None, None]
+    for ax in range(3):  # pick the closer of the two neighbouring coarse samples
+        c = cidx[ax]
+        i0 = np.clip(np.searchsorted(c, full[ax], side="right") - 1, 0, len(c) - 1)
+        i1 = np.clip(i0 + 1, 0, len(c) - 1)
+        near_idx[ax] = np.where(np.abs(c[i1] - full[ax]) < np.abs(full[ax] - c[i0]), i1, i0)
+    V = C[np.ix_(*near_idx)]
+    bi, bj, bk = np.nonzero(blk)
+    if len(bi) == 0:
+        return V
+    # evaluate the selected blocks in slabs along x to bound memory
+    mask = np.zeros((nx, ny, nz), dtype=bool)
+    for a, b, c in zip(bi, bj, bk):
+        mask[cidx[0][a]:cidx[0][a + 1] + 1, cidx[1][b]:cidx[1][b + 1] + 1, cidx[2][c]:cidx[2][c + 1] + 1] = True
+    pts = np.argwhere(mask)
+    vals = np.empty(len(pts))
+    for s in range(0, len(pts), chunk):
+        q = pts[s:s + chunk]
+        vals[s:s + chunk] = f.dist(lo + q * h)
+    V[pts[:, 0], pts[:, 1], pts[:, 2]] = vals
+    return V
+
+
+def surface_nets(f: SDF, lo: np.ndarray, h: float, n: np.ndarray, name: str = "SDFMesh",
+                 project_iterations: int = 2, chunk: int = 2_000_000, band: float = 3.0) -> Mesh:
+    nx, ny, nz = (int(v) for v in n)
+    V = _grid_values(f, lo, h, (nx, ny, nz), chunk, band=band)
     inside = V < 0
 
     # cells with a sign change
@@ -731,4 +818,4 @@ def surface_nets(f: SDF, lo: np.ndarray, h: float, n: np.ndarray, name: str = "S
         verts = verts - step
 
     mesh = Mesh(verts, [tuple(r) for r in F.tolist()], name=name, smooth_angle=180.0)
-    return mesh
+    return mesh.split_nonmanifold()  # sheets closer than a cell would otherwise share edges
