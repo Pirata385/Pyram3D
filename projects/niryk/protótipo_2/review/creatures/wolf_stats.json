@@ -1,0 +1,45 @@
+{
+ "Wolf": 9016,
+ "Wolf_Eyes": 712,
+ "total": 9728,
+ "bones": 28,
+ "length_m": 1.699,
+ "height_m": 1.135,
+ "withers_m": 0.825,
+ "width_m": 0.37,
+ "clips": {
+  "Idle": 2.4,
+  "Walk": 0.56,
+  "Run": 0.4,
+  "Attack": 0.75,
+  "Hit": 0.36,
+  "Death": 1.2
+ },
+ "gait": {
+  "Idle": {
+   "ik_miss_m": 0.0,
+   "lowest_ball_m": 0.045
+  },
+  "Walk": {
+   "ik_miss_m": 0.0,
+   "lowest_ball_m": 0.045
+  },
+  "Run": {
+   "ik_miss_m": 0.0,
+   "lowest_ball_m": 0.045
+  },
+  "Attack": {
+   "ik_miss_m": 0.0,
+   "lowest_ball_m": 0.045
+  },
+  "Hit": {
+   "ik_miss_m": 0.0,
+   "lowest_ball_m": 0.045
+  },
+  "Death": {
+   "ik_miss_m": 0.0138,
+   "lowest_ball_m": 0.0445
+  }
+ },
+ "time_s": 79.1
+}
