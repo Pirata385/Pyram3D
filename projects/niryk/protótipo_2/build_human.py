@@ -32,36 +32,93 @@ import clothes as C
 import face as FC
 import hair as HR
 import rig as RG
-from common import (FOREARM, HEIGHT, REVIEW, SHOULDER, UPPER_ARM, arm_dir, build_skeleton, export_glb, mirror_side,
+from common import (FOREARM, HEIGHT, KNEE_Y, REVIEW, SHOULDER, UPPER_ARM, arm_dir, build_skeleton, export_glb, mirror_side,
                     review_lights, tint_for_review, untint, write_stats)
-from meshing import mesh_sdf, sizing
+from meshing import covered_by, mesh_sdf, sizing
 
 import pyram3d as p3
 
 FAST = "--fast" in sys.argv
-CELL = 0.0065 if FAST else 0.0045
+CELL = 0.0065 if FAST else 0.0052  # body (mostly under the clothes) and garments
+FINE = 0.0036 if FAST else 0.0028  # head and hands: seen up close
+
+# Regions meshed finely on their own (their open cuts lie under the tunic and the bracers).
+HEAD_BOX = (np.array([-0.15, 1.415, -0.17]), np.array([0.15, 1.86, 0.17]))
+HAND_CUT = UPPER_ARM + FOREARM * 0.7  # hands start here along the arm (under the bracer)
+BUDGET = {"Body": 2600, "Head": 5200, "Hand": 1900, "Hair_curto": 3000, "Tunic": 3200, "Trousers": 1500,
+          "Boots": 1700, "Belt": 700, "Bracers": 600}
+
+
+def _along(P, side):
+    return (P - mirror_side(SHOULDER, side)) @ arm_dir(side)
+
+
+def in_head_box(P, shrink=0.0):
+    lo, hi = HEAD_BOX
+    return np.all((P > lo + shrink) & (P < hi - shrink), axis=1)
+
+
+def in_hand(P, side=None, cut=HAND_CUT):
+    out = np.zeros(len(P), bool)
+    for s in ((1, -1) if side is None else (side,)):
+        out |= (np.sign(P[:, 0]) == s) & (_along(P, s) > cut)
+    return out
+
+
+def head_sizing():
+    face = lambda P: (P[:, 2] > 0.02) & (P[:, 1] > 1.53) & (P[:, 1] < 1.74) & (np.abs(P[:, 0]) < 0.075)  # noqa: E731
+    ears = lambda P: (np.abs(P[:, 0]) > 0.07) & (P[:, 1] > 1.6) & (P[:, 1] < 1.7)  # noqa: E731
+    return sizing([(face, 0.0085), (ears, 0.011), (lambda P: P[:, 1] < 1.53, 0.022)], 0.016)
+
+
+def garment_sizing():
+    knee = lambda P: np.abs(P[:, 1] - KNEE_Y) < 0.09  # noqa: E731
+    shoulder = lambda P: (np.abs(P[:, 0]) > 0.12) & (P[:, 1] > 1.3)  # noqa: E731
+    return sizing([(knee, 0.026), (shoulder, 0.03)], 0.05)
 
 
 def body_sizing():
-    hands = [B.hand_center(s) for s in (1, -1)]
-    return sizing([
-        (lambda P: (P[:, 1] > 1.5) & (np.abs(P[:, 0]) < 0.13), 0.011),  # head & neck
-        (lambda P: np.min([np.linalg.norm(P - h, axis=1) for h in hands], axis=0) < 0.12, 0.0095),  # hands
-        (lambda P: np.abs(P[:, 0]) > 0.3, 0.022),  # arms (bend at the elbows)
-    ], 0.05)  # torso and legs: under the clothes
+    return sizing([(lambda P: np.abs(P[:, 0]) > 0.3, 0.022)], 0.05)  # arms bend at the elbows
 
 
-def build_outfit(body):
-    """Meshes the garments and deletes the body faces they cover. Returns {name: (mesh, sdf)}."""
+def build_body(garments, hair):
+    """Skin: a coarse body (arms, and what the clothes hide) plus the head and both hands meshed
+    finely on their own. Skin hidden under the garments or the hair is dropped."""
+    shape = B.body_sdf()
+    gl = [g for _, g in garments.values()]
+    hid = covered_by(gl)
+    coarse_out = lambda P: in_head_box(P, 0.012) | in_hand(P, cut=HAND_CUT + 0.012)  # noqa: E731
+    body = mesh_sdf(shape, CELL, BUDGET["Body"], max_edge=body_sizing(), name="Body", outside=coarse_out,
+                    hidden=hid)
+    head = mesh_sdf(shape, FINE, BUDGET["Head"], max_edge=head_sizing(), name="Head", bounds=HEAD_BOX,
+                    hidden=covered_by(gl + [hair], margin=0.0035))
+    parts = [body, head]
+    for side in (1, -1):
+        c = B.hand_center(side)
+        lo, hi = c - 0.14, c + 0.14
+        hand = mesh_sdf(shape, FINE, BUDGET["Hand"], max_edge=0.013, name="Hand_L" if side == 1 else "Hand_R",
+                        bounds=(lo, hi), outside=lambda P, s=side: ~in_hand(P, s), hidden=hid)
+        parts.append(hand)
+    return p3.Mesh.join(parts, name="Body"), shape
+
+
+def build_outfit(body_shape):
+    """Meshes the garments; faces hidden under another garment or inside the body are dropped.
+    Returns {name: (mesh, sdf)}."""
+    g = {name: make() for name, make in C.GARMENTS}
+    inside = covered_by([body_shape], margin=0.004)
+    over = {  # garment -> garments over it (with an optional region where that one hides it)
+        "Tunic": [(g["Belt"], None)],
+        "Trousers": [(g["Boots"], None), (g["Belt"], None), (g["Tunic"], lambda P: P[:, 1] > 0.94)],
+        "Belt": [(g["Tunic"], None)],
+        "Boots": [], "Bracers": [],
+    }
     out = {}
-    covered = np.zeros(body.num_vertices, bool)
-    for name, make, cs, target in C.GARMENTS:
-        g = make()
-        m = mesh_sdf(g, CELL * cs, target, max_edge=0.03, name=name)
-        out[name] = (m, g)
-        covered |= g.dist(body.vertices) < -0.003
-    faces = [i for i, f in enumerate(body.faces) if all(covered[v] for v in f)]
-    body.delete_faces(faces)
+    for name, _ in C.GARMENTS:
+        tests = [inside] + [covered_by([s], where=w) for s, w in over[name]]
+        hidden = lambda P, t=tests: np.any([f(P) for f in t], axis=0)  # noqa: E731
+        m = mesh_sdf(g[name], CELL, BUDGET[name], max_edge=garment_sizing(), name=name, hidden=hidden)
+        out[name] = (m, g[name])
     return out
 
 
@@ -71,6 +128,9 @@ def paint_garments(outfit):
     V = tun.vertices
     lum = np.ones(len(V))
     lum *= 1 - 0.18 * (1 - RG.ss(C.TUNIC_HEM, C.TUNIC_HEM + 0.035, V[:, 1]))  # hem band
+    for s in (1, -1):  # sleeve hems
+        on = (np.sign(V[:, 0]) == s) & (np.abs(V[:, 0]) > 0.15)
+        lum = np.where(on, lum * (1 - 0.16 * RG.ss(C.SLEEVE - 0.03, C.SLEEVE - 0.022, _along(V, s))), lum)
     lum *= 1 - 0.1 * RG.ss(0.0, 1.0, (1.0 - V[:, 1]) / 0.25)  # skirt slightly darker lower down
     tun.colors[:, :3] = lum[:, None]
     boots = outfit["Boots"][0]
@@ -91,20 +151,21 @@ def paint_garments(outfit):
 
 
 def paint_face(body):
-    """Lips slightly darker and warmer, a little blush on the cheeks (vertex colors multiply the
-    skin tint)."""
+    """Lips darker and warmer (the upper one a bit more), a little blush on the cheeks (vertex
+    colors multiply the skin tint)."""
     V = body.vertices
-    mouth = B.head_xf([0, B.MOUTH_Y, 0.1])
-    d = V - mouth
-    hw = 0.024 * B.HEAD_SCALE
-    lips = (np.abs(d[:, 0]) < hw) & (np.abs(d[:, 1] + 0.003) < 0.009) & (d[:, 2] > -0.012)
-    w = np.clip(1 - np.abs(d[:, 0]) / hw, 0, 1) ** 0.5
+    d = (V - B.head_xf([0, B.MOUTH_Y, B.MOUTH_Z])) / B.HEAD_SCALE
+    hw = B.MOUTH_W * 1.02
+    wx = np.clip(1 - (np.abs(d[:, 0]) / hw) ** 4, 0, 1)
+    up = RG.ss(0.0105, 0.0065, d[:, 1]) * RG.ss(-0.002, 0.0005, d[:, 1])
+    dn = RG.ss(-0.0125, -0.0085, d[:, 1]) * RG.ss(0.0005, -0.0015, d[:, 1])
+    lips = wx * np.maximum(up, 0.75 * dn) * (d[:, 2] > -0.016)
     col = body.colors[:, :3]
-    col[lips] *= (1 - w[lips, None] * (1 - np.array([0.86, 0.7, 0.68])))
+    col *= 1 - lips[:, None] * (1 - np.array([0.84, 0.66, 0.64]))
     for s in (1, -1):
-        c = B.head_xf([s * 0.05, 1.615, 0.075])
+        c = B.head_xf([s * 0.052, 1.618, 0.072])
         r = np.linalg.norm(V - c, axis=1)
-        k = np.clip(1 - r / 0.022, 0, 1)[:, None] * 0.1
+        k = np.clip(1 - r / 0.024, 0, 1)[:, None] * 0.1
         col *= 1 - k * (1 - np.array([1.0, 0.86, 0.84]))
     body.colors[:, :3] = col
 
@@ -115,7 +176,7 @@ SOURCES = ("body.py", "clothes.py", "hair.py", "face.py", "shapes.py", "meshing.
 
 def build_meshes():
     """Meshing is the slow part: results are cached by the hash of the modeling sources."""
-    h = hashlib.sha1(str(CELL).encode())
+    h = hashlib.sha1(f"{CELL} {FINE}".encode())
     for f in SOURCES:
         h.update((Path(__file__).resolve().parent / f).read_bytes())
     for f in ("sdf.py", "remesh.py", "mesh.py"):
@@ -124,12 +185,14 @@ def build_meshes():
     if path.exists() and "--no-cache" not in sys.argv:
         print("meshes from cache", path.name)
         return pickle.loads(path.read_bytes())
-    shape = B.body_sdf()
-    body = mesh_sdf(shape, CELL, 16000 if not FAST else 12000, max_edge=body_sizing(), name="Body")
-    outfit = build_outfit(body)
+    body_shape = B.body_sdf()
+    outfit = build_outfit(body_shape)
+    hair_shape = HR.hair_sdf()
+    hair = mesh_sdf(hair_shape, FINE * 1.15, BUDGET["Hair_curto"], max_edge=0.015, name="Hair_curto",
+                    hidden=covered_by([B.head_scaled()], margin=0.003))
+    body, _ = build_body(outfit, hair_shape)
     paint_garments(outfit)
     paint_face(body)
-    hair = mesh_sdf(HR.hair_sdf(), CELL * 0.85, 3200, max_edge=0.015, name="Hair_curto")
     eyes = FC.eyes()
     brows = FC.brows(B.head_scaled())
     res = (body, {k: v[0] for k, v in outfit.items()}, hair, eyes, brows)
@@ -148,8 +211,12 @@ def build():
     head_sdf = B.head_scaled()
     RG.skin_mesh(body, sk, head_sdf)
     for name, m in outfit.items():
-        mask = (m.vertices[:, 1] < 1.0) if name == "Tunic" else None
-        RG.skin_mesh(m, sk, head_sdf, skirt_mask=mask, hem=C.TUNIC_HEM)
+        if name == "Tunic":
+            RG.skin_mesh(m, sk, head_sdf, skirt_mask=m.vertices[:, 1] < 1.05)
+        elif name == "Trousers":  # under the skirt the trousers move with it (no poking through)
+            RG.skin_mesh(m, sk, head_sdf, skirt_mask=m.vertices[:, 1] > 0.85, skirt_blend=lambda y: RG.ss(0.86, 0.91, y) * RG.ss(1.045, 0.975, y))
+        else:
+            RG.skin_mesh(m, sk, head_sdf)
     for m in (hair, eyes, brows):
         RG.skin_mesh(m, sk, rigid_bone="Head")
 
@@ -200,6 +267,45 @@ def build_sword():
     return m
 
 
+def hand_world(rig, pose, side):
+    """World position of a hand's center in a pose (side: "Left" / "Right")."""
+    bone = side + "Hand"
+    off = B.hand_center(1 if side == "Left" else -1) - rig.head[bone]
+    return rig.world_head(pose, bone) + A.rot(rig.world_rot(pose, bone), off)
+
+
+def review_hands(scene, sk, out):
+    """Close-ups of both hands (toon): the sword hand from the front, the side, below and from the
+    eyes (first person), at rest and at the hit of Attack1; the relaxed hand from two sides."""
+    from pyram3d.image import grid, write_png
+    rig = A.Rig(sk)
+    feet = A.Feet(rig)
+    idle = A.sample(rig, feet, "Idle", 0.0)
+    hit = A.sample(rig, feet, "Attack1", A.HIT_TIME["Attack1"])
+    r, l = hand_world(rig, idle, "Right"), hand_world(rig, idle, "Left")
+    eye = rig.world_head(hit, "Head") + A.rot(rig.world_rot(hit, "Head"), [0.0, 0.085, 0.17])
+    rh = hand_world(rig, hit, "Right")
+    shots = [
+        dict(view=(-0.5, 0.25, 1.0), target=r, distance=0.42, time=0.0, animation="Idle"),
+        dict(view=(-1.0, 0.35, 0.1), target=r, distance=0.42, time=0.0, animation="Idle"),
+        dict(view=(-0.3, -0.6, 0.8), target=r, distance=0.42, time=0.0, animation="Idle"),
+        dict(view=tuple(eye - rh), target=rh, distance=float(np.linalg.norm(eye - rh)), yfov=60,
+             time=A.HIT_TIME["Attack1"], animation="Attack1"),
+        dict(view=(0.2, 0.5, 1.0), target=hand_world(rig, hit, "Right"), distance=0.5, time=A.HIT_TIME["Attack1"],
+             animation="Attack1"),
+        dict(view=(1.0, 0.3, 0.4), target=l, distance=0.42, time=0.0, animation="Idle"),
+        dict(view=(0.4, 0.2, 1.0), target=l, distance=0.42, time=0.0, animation="Idle"),
+        dict(view=(-0.2, 0.3, -1.0), target=l, distance=0.42, time=0.0, animation="Idle"),
+    ]
+    imgs = []
+    for sh in shots:
+        kw = dict(yfov=30)
+        kw.update(sh)
+        kw["target"] = tuple(float(v) for v in kw["target"])
+        imgs.append(p3.render(scene, None, 420, 420, style="toon", **kw))
+    write_png(out / "human_m_hands.png", grid(imgs, 4))
+
+
 def review(scene, sk, nodes, sword, clips=None):
     out = REVIEW / "characters"
     out.mkdir(parents=True, exist_ok=True)
@@ -219,8 +325,11 @@ def review(scene, sk, nodes, sword, clips=None):
     imgs = [p3.render(scene, None, 520, 520, view=v, style="clay", target=(0, hy, 0.0), distance=1.05, yfov=30,
                       time=0.0, animation="Idle") for v in [(0.0, 0.05, 1), (0.75, 0.15, 1)]]
     write_png(out / "human_m_closeup_clay.png", grid(imgs, 2))
-    for clip in clips or ("Walk", "StrafeLeft", "Run", "Attack1", "Attack2", "WalkBack", "StrafeRight", "Idle",
-                          "Hit", "Death"):
+    review_hands(scene, sk, out)
+    if clips is None:
+        clips = () if "--no-clips" in sys.argv else ("Walk", "StrafeLeft", "Run", "Attack1", "Attack2", "WalkBack",
+                                                     "StrafeRight", "Idle", "Hit", "Death")
+    for clip in clips:
         view = (1.0, 0.25, 0.25) if clip in ("Walk", "Run", "WalkBack") else (0.55, 0.3, 1.0)
         p3.render_frames(scene, out / f"human_m_{clip}.png", clip, frames=6, size=320, style="toon", view=view)
     untint(scene)

@@ -51,14 +51,16 @@ def tunic():
 
     def t_upper(p):
         d, _ = _along_arm(p)
-        return 0.013 + 0.009 * _smoothstep(0.03, SLEEVE, d)  # sleeves flare a little
+        hem = _smoothstep(SLEEVE - 0.026, SLEEVE - 0.012, d)  # a rolled hem at the sleeve end
+        return 0.011 + 0.003 * _smoothstep(0.04, SLEEVE, d) + 0.0035 * hem  # follows the deltoid
 
     upper = Offset(upper_base, t_upper, t_max=0.022)
     # A-line skirt from the waist to mid-thigh, over both legs
     y0, y1 = 1.06, TUNIC_HEM
     T = lambda y: (y0 - y) / (y0 - y1)  # noqa: E731
-    skirt = Tube((0, y0, -0.006), (0, y1, -0.012), {T(1.06): 0.152, T(0.98): 0.172, T(0.9): 0.192, T(y1): 0.214},
-                 {T(1.06): 0.112, T(0.97): 0.116, T(y1): 0.14}, k={T(1.06): 0.106, T(0.95): 0.128, T(y1): 0.15},
+    skirt = Tube((0, y0, -0.006), (0, y1, -0.012),
+                 {T(1.06): 0.156, T(1.0): 0.19, T(0.96): 0.208, T(0.9): 0.218, T(0.84): 0.223, T(y1): 0.232},
+                 {T(1.06): 0.112, T(0.97): 0.122, T(y1): 0.144}, k={T(1.06): 0.11, T(0.97): 0.14, T(y1): 0.162},
                  n=2.3, cap=0.012)
     shape = _cut(upper, (0, 0.99, 0), (0, -1, 0), 0.02).smooth_union(skirt, 0.03)
     # sleeves end at SLEEVE along each arm (the cut is limited to a cylinder around the arm, so it
@@ -74,7 +76,7 @@ def tunic():
 
 def belt():
     """Leather belt over the tunic waist, with a metal buckle."""
-    base = sdf.smooth_union(B.torso(), sdf.ellipsoid((0, 1.0, -0.01), (0.16, 0.08, 0.125)), k=0.04)
+    base = sdf.smooth_union(B.torso(), sdf.ellipsoid((0, 1.0, -0.01), (0.174, 0.08, 0.13)), k=0.04)
     band = Offset(base, 0.028)
     band = _cut(_cut(band, (0, BELT_Y[1], 0), (0, 1, 0), 0.006), (0, BELT_Y[0], 0), (0, -1, 0), 0.006)
     band = band.paint(color=(1, 1, 1), material=slot("Leather"))
@@ -101,7 +103,8 @@ def _front_z(shape, y, x=0.0):
 def trousers():
     legs = sdf.union(B.leg_tube(1), B.leg_tube(-1))
     hips = sdf.smooth_union(B.torso(), legs, k=0.045)
-    shape = Offset(hips, 0.01)
+    # thinner under the tunic skirt, so the thighs never show through it
+    shape = Offset(hips, lambda p: 0.01 - 0.004 * _smoothstep(0.82, 0.9, p[:, 1]), t_max=0.01)
     shape = _cut(shape, (0, 1.02, 0), (0, 1, 0), 0.01)
     shape = _cut(shape, (0, BOOT_TOP - 0.06, 0), (0, -1, 0), 0.006)
     return shape.paint(color=(1, 1, 1), material=slot("Cloth_B"))
@@ -140,10 +143,10 @@ def bracers():
     return sdf.union(*parts).paint(color=(1, 1, 1), material=slot("Leather"))
 
 
-GARMENTS = [  # (name, builder, cell scale, triangle target)
-    ("Tunic", tunic, 1.0, 3800),
-    ("Trousers", trousers, 1.2, 1800),
-    ("Boots", boots, 1.0, 1800),
-    ("Belt", belt, 0.8, 900),
-    ("Bracers", bracers, 0.9, 900),
+GARMENTS = [  # (name, builder); mesh budgets are in build_human.BUDGET
+    ("Tunic", tunic),
+    ("Trousers", trousers),
+    ("Boots", boots),
+    ("Belt", belt),
+    ("Bracers", bracers),
 ]

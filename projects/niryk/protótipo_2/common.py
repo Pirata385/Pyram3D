@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import sys
 from pathlib import Path
 
@@ -24,8 +25,11 @@ sys.path.insert(0, str(next(p for p in HERE.parents if (p / "pyram3d").is_dir())
 import pyram3d as p3  # noqa: E402
 from pyram3d import math3d as m3  # noqa: E402
 
-EXPORTS = HERE / "exports"
-REVIEW = HERE / "review"
+# NIRYK_P2_OUT=<dir> sends exports and review sheets there instead (trial builds that must not
+# replace the GLBs the game imports)
+_OUT = os.environ.get("NIRYK_P2_OUT")
+EXPORTS = Path(_OUT) / "exports" if _OUT else HERE / "exports"
+REVIEW = Path(_OUT) / "review" if _OUT else HERE / "review"
 
 # ----------------------------------------------------------------------------- material slots
 # Tintable slots: the game multiplies the material color by the player's choice; vertex colors

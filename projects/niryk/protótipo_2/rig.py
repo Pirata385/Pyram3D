@@ -30,7 +30,8 @@ def _arm_coords(P, side):
 def weight_matrix(P: np.ndarray, names: list[str], head_sdf=None, skirt: bool = False,
                   hem: float = 0.765) -> np.ndarray:
     """(N, n_bones) weights for rest positions P. skirt=True weights a tunic skirt: below the
-    hips it is shared by the hips and both thighs (more thigh lower down), so it never tears."""
+    hips each side follows its thigh and the middle is shared by both thighs, so the legs never
+    swing through it and it never tears."""
     idx = {n: i for i, n in enumerate(names)}
     N = len(P)
     W = np.zeros((N, len(names)))
@@ -60,15 +61,16 @@ def weight_matrix(P: np.ndarray, names: list[str], head_sdf=None, skirt: bool = 
         hand = ss(UPPER_ARM + FOREARM - 0.018, UPPER_ARM + FOREARM + 0.025, d)
         arm_parts[pre] = (ma, msh, {"UpperArm": 1 - lower, "LowerArm": lower - hand, "Hand": hand})
 
-    # legs (below the hips, on their side of the crotch)
+    # legs (below the hips, on their side of the crotch; never the hands hanging beside the thighs)
+    arm_any = np.clip(sum(a[0] for a in arm_parts.values()), 0, 1)
     leg_parts = {}
     for side, pre in ((1, "Left"), (-1, "Right")):
         if skirt:
-            down = np.clip((0.98 - y) / (0.98 - hem), 0, 1) * 0.55
+            down = ss(1.03, 0.93, y)  # the skirt flaps follow the thighs (they swing far in a run)
             sidew = ss(-0.07, 0.07, x * side)
             ml = down * sidew
         else:
-            ml = ss(0.985, 0.875, y) * ss(-0.012, 0.022, x * side)
+            ml = ss(0.985, 0.875, y) * ss(-0.012, 0.022, x * side) * (1 - arm_any)
         knee = ss(KNEE_Y + 0.045, KNEE_Y - 0.04, y)
         ankle = ss(ANKLE_Y + 0.035, ANKLE_Y - 0.01, y) if not skirt else np.zeros(N)
         toes = ss(0.09, 0.135, z) * ss(0.075, 0.045, y) if not skirt else np.zeros(N)
@@ -104,8 +106,10 @@ def top4(W):
     return j.astype(np.int64), w
 
 
-def skin_mesh(mesh, sk, head_sdf=None, skirt_mask=None, hem=0.765, rigid_bone: str | None = None):
+def skin_mesh(mesh, sk, head_sdf=None, skirt_mask=None, hem=0.765, rigid_bone: str | None = None,
+              skirt_blend=None):
     """Fill mesh.joints/weights. skirt_mask: vertices weighted as a skirt (tunic below the hips).
+    skirt_blend(y) -> share of the skirt weights (default: from the waist down to the hips).
     rigid_bone: every vertex follows that bone (eyes, brows, hair)."""
     names = [b.name for b in sk.bones]
     if rigid_bone is not None:
@@ -118,7 +122,8 @@ def skin_mesh(mesh, sk, head_sdf=None, skirt_mask=None, hem=0.765, rigid_bone: s
     if skirt_mask is not None and np.any(skirt_mask):
         Ws = weight_matrix(mesh.vertices[skirt_mask], names, head_sdf, skirt=True, hem=hem)
         # blend into the skirt weights over the hip band so the waist stays continuous
-        b = ss(1.0, 0.94, mesh.vertices[skirt_mask, 1])[:, None]
+        y = mesh.vertices[skirt_mask, 1]
+        b = (ss(1.045, 0.975, y) if skirt_blend is None else skirt_blend(y))[:, None]
         W[skirt_mask] = W[skirt_mask] * (1 - b) + Ws * b
     mesh.joints, mesh.weights = top4(W)
     return mesh

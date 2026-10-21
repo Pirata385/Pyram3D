@@ -163,3 +163,84 @@ class Offset(sdf.SDF):
     def bounds(self):
         lo, hi = self.child.bounds()
         return lo - self.t_max, hi + self.t_max
+
+
+class Strand(sdf.SDF):
+    """Smooth swept clump (hair locks): a dense polyline with an outward direction per point and
+    a lens/ellipse section whose half width `w`, outward half thickness `f` and inward half
+    thickness `k` vary along it (arrays, one value per point). Unlike a chain of short tubes
+    there are no necks between segments: the section frame and radii are interpolated along the
+    nearest segment. The root end is closed by a round cap; the tip closes by tapering."""
+
+    def __init__(self, points, outward, w, f, k, color=None, material=None, bone=None):
+        self.color, self.material, self.bone = color, material, bone
+        self.P = np.asarray(points, float)
+        self.D = np.diff(self.P, axis=0)
+        self.L2 = np.einsum("ij,ij->i", self.D, self.D)
+        T = self.D / np.sqrt(self.L2)[:, None]
+        tang = np.vstack([T[:1], 0.5 * (T[1:] + T[:-1]), T[-1:]])
+        tang /= np.linalg.norm(tang, axis=1, keepdims=True)
+        N = np.asarray(outward, float)
+        N = N - tang * np.einsum("ij,ij->i", N, tang)[:, None]
+        self.N = N / np.linalg.norm(N, axis=1, keepdims=True)
+        self.tang = tang
+        self.w, self.f, self.k = (np.asarray(a, float) for a in (w, f, k))
+        r = np.maximum(self.w, np.maximum(self.f, self.k))
+        self.lo = (self.P - r[:, None]).min(axis=0)
+        self.hi = (self.P + r[:, None]).max(axis=0)
+
+    def bounds(self):
+        return self.lo, self.hi
+
+    def dist(self, p):
+        p = np.asarray(p, float)
+        out = np.empty(len(p))
+        # far points: distance to the bounding box (a lower bound) is enough
+        q = np.maximum(self.lo - p, 0) + np.maximum(p - self.hi, 0)
+        far = np.linalg.norm(q, axis=1)
+        near = far < 0.006
+        out[~near] = far[~near]  # a lower bound: safe for the mesher's narrow band
+        idx = np.flatnonzero(near)
+        for s in range(0, len(idx), 60000):
+            ii = idx[s:s + 60000]
+            out[ii] = self._dist(p[ii])
+        return out
+
+    def _dist(self, p):
+        rel = p[:, None, :] - self.P[None, :-1, :]  # (n, m, 3)
+        t = np.clip(np.einsum("nmj,mj->nm", rel, self.D) / self.L2[None], 0, 1)
+        c = rel - t[..., None] * self.D[None]
+        d2 = np.einsum("nmj,nmj->nm", c, c)
+        j = np.argmin(d2, axis=1)
+        n = len(p)
+        ar = np.arange(n)
+        tj = t[ar, j]
+        v = c[ar, j]  # from the axis point to p
+        lerp = lambda A: A[j] * (1 - tj)[:, None] + A[j + 1] * tj[:, None] if A.ndim == 2 else A[j] * (1 - tj) + A[j + 1] * tj  # noqa: E731,E501
+        tg = lerp(self.tang)
+        tg /= np.linalg.norm(tg, axis=1, keepdims=True)
+        nr = lerp(self.N)
+        nr = nr - tg * np.einsum("ij,ij->i", nr, tg)[:, None]
+        nr /= np.linalg.norm(nr, axis=1, keepdims=True)
+        bn = np.cross(tg, nr)
+        w = np.maximum(lerp(self.w), 1e-4)
+        y = np.einsum("ij,ij->i", v, nr)
+        x = np.einsum("ij,ij->i", v, bn)
+        ry = np.maximum(np.where(y > 0, lerp(self.f), lerp(self.k)), 1e-4)
+        K = np.sqrt((x / w) ** 2 + (y / ry) ** 2) + 1e-12
+        g = np.sqrt((x / (w * w)) ** 2 + (y / (ry * ry)) ** 2) / K + 1e-12
+        d_sec = (K - 1) / g
+        d_sec = np.where(K > 1, np.maximum(d_sec, 0.8 * (K - 1) * np.minimum(w, ry)), d_sec)
+        # root cap: before the first point the section rounds off
+        # end caps (rounded at the root, nearly pointed at the tapered tip)
+        q4 = max(len(self.P) // 4, 1)
+        e = np.full(n, -1.0)
+        s0 = -((p - self.P[0]) @ self.tang[0])
+        s1 = (p - self.P[-1]) @ self.tang[-1]
+        e = np.where(j < q4, s0, e)
+        e = np.where(j >= len(self.D) - q4, np.maximum(e, s1), e)
+        rc = np.minimum(w, ry) * 0.9
+        a_ = d_sec + rc
+        b_ = e + rc
+        o1, o2 = np.maximum(a_, 0), np.maximum(b_, 0)
+        return np.sqrt(o1 * o1 + o2 * o2) + np.minimum(np.maximum(a_, b_), 0) - rc
