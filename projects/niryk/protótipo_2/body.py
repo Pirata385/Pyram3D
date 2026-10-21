@@ -1,18 +1,19 @@
-"""Smooth heroic human male body (rest A-pose) as one SDF: few large forms, wide blends.
+"""Smooth anime-RPG human body (rest A-pose) as one SDF, male or female: few large forms, wide blends.
 
 Torso, limbs and neck are profile tubes (see shapes.Tube): each is ONE continuous surface whose
 silhouette comes from smooth radius curves (deltoid -> biceps -> elbow -> forearm -> wrist), so
 there are no blobs to blend. Tubes meet at the shoulders, hips and neck through wide smooth
-unions. The head is built from a cranium, an angular jaw wedge (rounded edges), a brow bar, a
-wedge nose and cheek planes. Units: meters, faces +Z, left = +X.
+unions. Male: athletic (broad shoulders, tapered waist); female: slimmer, narrow shoulders, a
+defined waist, wider hips and a bust. The head is head.py's. Units: meters, faces +Z, left = +X.
 """
 from __future__ import annotations
 
 import numpy as np
 
-from common import (ANKLE_Y, FOREARM, GRIP_OFFSET, GRIP_RADIUS, HIP, KNEE_Y, SHOULDER, UPPER_ARM, arm_rot,
+from common import (FEMALE, FOREARM, GRIP_OFFSET, GRIP_RADIUS, HIP, KNEE_Y, SHOULDER, UPPER_ARM, arm_rot,
                     mirror_side, slot)
-from shapes import Tube, wedge
+from head import HEAD_PIVOT, HEAD_SCALE, head_scaled, head_xf, neck  # noqa: F401  (re-exported)
+from shapes import Tube
 
 from pyram3d import math3d as m3
 from pyram3d import sdf
@@ -39,15 +40,28 @@ def _arm_frame(shape, side=1):
 def torso():
     y0, y1 = 0.83, 1.5
     T = lambda y: (y - y0) / (y1 - y0)  # noqa: E731
-    w = {T(0.83): 0.12, T(0.88): 0.14, T(0.95): 0.152, T(1.02): 0.15, T(1.09): 0.138, T(1.17): 0.154,
-         T(1.27): 0.18, T(1.35): 0.194, T(1.41): 0.186, T(1.465): 0.14, T(1.5): 0.085}
-    f = {T(0.83): 0.07, T(0.9): 0.094, T(0.97): 0.098, T(1.09): 0.098, T(1.18): 0.11, T(1.29): 0.13,
-         T(1.37): 0.124, T(1.43): 0.1, T(1.5): 0.055}
-    k = {T(0.83): 0.08, T(0.9): 0.11, T(0.95): 0.116, T(1.03): 0.1, T(1.1): 0.09, T(1.2): 0.096,
-         T(1.3): 0.104, T(1.4): 0.11, T(1.46): 0.102, T(1.5): 0.065}
-    n = {0.0: 2.2, T(1.09): 2.2, T(1.3): 2.7, T(1.42): 2.5, 1.0: 2.2}
+    if FEMALE:
+        w = {T(0.83): 0.122, T(0.88): 0.152, T(0.95): 0.166, T(1.01): 0.156, T(1.07): 0.124, T(1.11): 0.116,
+             T(1.17): 0.124, T(1.25): 0.142, T(1.33): 0.152, T(1.39): 0.152, T(1.44): 0.13, T(1.48): 0.1, T(1.5): 0.07}
+        f = {T(0.83): 0.068, T(0.9): 0.088, T(0.97): 0.09, T(1.06): 0.08, T(1.12): 0.08, T(1.2): 0.09, T(1.3): 0.098,
+             T(1.38): 0.094, T(1.44): 0.08, T(1.5): 0.046}
+        k = {T(0.83): 0.084, T(0.9): 0.116, T(0.95): 0.12, T(1.02): 0.1, T(1.09): 0.08, T(1.18): 0.086,
+             T(1.28): 0.092, T(1.38): 0.096, T(1.45): 0.088, T(1.5): 0.058}
+        n = {0.0: 2.2, T(1.09): 2.1, T(1.3): 2.4, T(1.42): 2.3, 1.0: 2.2}
+    else:
+        w = {T(0.83): 0.12, T(0.88): 0.14, T(0.95): 0.15, T(1.02): 0.146, T(1.09): 0.134, T(1.17): 0.15,
+             T(1.27): 0.174, T(1.35): 0.188, T(1.41): 0.182, T(1.465): 0.138, T(1.5): 0.085}
+        f = {T(0.83): 0.07, T(0.9): 0.092, T(0.97): 0.095, T(1.09): 0.094, T(1.18): 0.106, T(1.29): 0.124,
+             T(1.37): 0.12, T(1.43): 0.098, T(1.5): 0.055}
+        k = {T(0.83): 0.08, T(0.9): 0.108, T(0.95): 0.113, T(1.03): 0.098, T(1.1): 0.088, T(1.2): 0.094,
+             T(1.3): 0.102, T(1.4): 0.108, T(1.46): 0.1, T(1.5): 0.065}
+        n = {0.0: 2.2, T(1.09): 2.2, T(1.3): 2.6, T(1.42): 2.45, 1.0: 2.2}
     cf = {0.0: 0.0, T(1.3): 0.0, T(1.45): -0.012, 1.0: -0.02}
-    return skin(Tube((0, y0, -0.005), (0, y1, -0.005), w, f, k=k, n=n, cf=cf, cap=0.05))
+    body = Tube((0, y0, -0.005), (0, y1, -0.005), w, f, k=k, n=n, cf=cf, cap=0.05)
+    if FEMALE:  # bust: two soft volumes blended into the chest
+        bust = sdf.ellipsoid((0.048, 1.262, 0.06), (0.054, 0.05, 0.044)).mirror_x()
+        body = body.smooth_union(bust, 0.04)
+    return skin(body)
 
 
 def shoulders():
@@ -55,19 +69,11 @@ def shoulders():
     the deltoids (front +Z; the bar's 'width' is its vertical half-height)."""
     a = mirror_side(SHOULDER, -1) + np.array([-0.012, 0.0, 0.0])
     b = SHOULDER + np.array([0.012, 0.0, 0.0])
-    t = {0.0: 0.056, 0.2: 0.064, 0.5: 0.072, 0.8: 0.064, 1.0: 0.056}
+    g = 0.86 if FEMALE else 1.0
+    t = {0.0: 0.056 * g, 0.2: 0.064 * g, 0.5: 0.072 * g, 0.8: 0.064 * g, 1.0: 0.056 * g}
     cl = {0.0: -0.006, 0.25: -0.02, 0.5: -0.028, 0.75: -0.02, 1.0: -0.006}  # l = -Y: negative raises
-    return skin(Tube(a, b, t, {0.0: 0.066, 0.5: 0.074, 1.0: 0.066}, k={0.0: 0.07, 0.5: 0.084, 1.0: 0.07},
-                     cl=cl, cap=0.045))
-
-
-def neck():
-    a = (0, 1.42, -0.03)
-    b = (0, 1.6, -0.012)
-    w = {0.0: 0.066, 0.3: 0.053, 0.7: 0.05, 1.0: 0.05}
-    f = {0.0: 0.058, 0.3: 0.05, 1.0: 0.048}
-    k = {0.0: 0.066, 0.3: 0.056, 1.0: 0.056}
-    return skin(Tube(a, b, w, f, k=k, cap=0.03))
+    return skin(Tube(a, b, t, {0.0: 0.066 * g, 0.5: 0.074 * g, 1.0: 0.066 * g},
+                     k={0.0: 0.07 * g, 0.5: 0.084 * g, 1.0: 0.07 * g}, cl=cl, cap=0.045))
 
 
 # ----------------------------------------------------------------------------- arms & hands
@@ -86,7 +92,12 @@ def arm_tube():
          T(E): 0.049, T(E + 0.05): 0.054, T(E + 0.13): 0.046, T(E + FOREARM - 0.03): 0.032, T(L1): 0.03}
     cl = {T(-0.04): 0.0, T(0.03): -0.002, T(0.12): -0.002, T(0.2): 0.0, 1.0: 0.0}
     n = {0.0: 2.0, T(E): 2.0, T(E + FOREARM): 2.3, 1.0: 2.3}
+    g = ARM_K
+    w, f, k = ({t: v * g for t, v in d.items()} for d in (w, f, k))
     return Tube((L0, 0, 0), (L1, 0, 0), w, f, k=k, cl=cl, n=n, cap=0.02)
+
+
+ARM_K = 0.84 if FEMALE else 0.94  # limb thickness relative to the old heroic male
 
 
 WX = UPPER_ARM + FOREARM  # wrist, canonical left arm frame
@@ -102,6 +113,9 @@ FINGERS = [  # (z at the knuckle, knuckle x from the wrist, length, base radius,
     (-0.0270, 0.088, 0.062, 0.0118, 0.0096),  # little
 ]
 PHALANX = (0.46, 0.31, 0.23)  # share of the finger length
+# anime hands are slimmer than the old sturdy ones: finger/palm thickness, hand width and length
+HAND_K, HAND_W, HAND_L = (0.8, 0.88, 0.93) if FEMALE else (0.88, 0.95, 1.0)
+FINGERS = [(z * HAND_W, kx * HAND_L, L * HAND_L, r0 * HAND_K, r1 * HAND_K) for z, kx, L, r0, r1 in FINGERS]
 
 
 def finger_shape(pts, r0, r1):
@@ -131,11 +145,12 @@ def _block(fingers):
 def palm():
     """Broad boxy palm (rounded square section), thickest at the heel, plus the thumb ball
     (thenar) and the pad on the little finger side."""
-    p = Tube((WX - 0.014, 0.0, 0.0), (WX + 0.095, -0.002, 0.0), {0: 0.021, 0.45: 0.0205, 1: 0.0175},
-             {0: 0.035, 0.45: 0.046, 1: 0.047}, k={0: 0.034, 0.45: 0.044, 1: 0.045}, n=3.4,
-             cl={0: 0.0, 0.6: 0.001, 1: 0.0}, cap=0.015)
-    thenar = sdf.ellipsoid((WX + 0.03, -0.013, 0.027), (0.033, 0.017, 0.021))
-    pad = sdf.ellipsoid((WX + 0.04, -0.011, -0.03), (0.036, 0.013, 0.016))
+    K, Wd, Ln = HAND_K, HAND_W, HAND_L
+    p = Tube((WX - 0.014, 0.0, 0.0), (WX + 0.095 * Ln, -0.002, 0.0), {0: 0.021 * K, 0.45: 0.0205 * K, 1: 0.0175 * K},
+             {0: 0.035 * Wd, 0.45: 0.046 * Wd, 1: 0.047 * Wd}, k={0: 0.034 * Wd, 0.45: 0.044 * Wd, 1: 0.045 * Wd},
+             n=3.4, cl={0: 0.0, 0.6: 0.001, 1: 0.0}, cap=0.015 * K)
+    thenar = sdf.ellipsoid((WX + 0.03 * Ln, -0.013 * K, 0.027 * Wd), (0.033 * Ln, 0.017 * K, 0.021 * Wd))
+    pad = sdf.ellipsoid((WX + 0.04 * Ln, -0.011 * K, -0.03 * Wd), (0.036 * Ln, 0.013 * K, 0.016 * Wd))
     return p.smooth_union(thenar, 0.014).smooth_union(pad, 0.012)
 
 
@@ -158,11 +173,12 @@ def hand_relaxed():
     for (z, kx, L, r0, r1), c in zip(FINGERS, curls):
         base = np.array([WX + kx, -0.002, z])
         fingers.append(finger_shape(finger_chain(base, L, c, spread=0.04 * np.sign(z) * 0.5), r0, r1))
-    t0 = np.array([WX + 0.016, -0.01, 0.028])
-    t1 = t0 + np.array([0.032, -0.015, 0.016])
-    t2 = t1 + np.array([0.028, -0.004, 0.0])
-    t3 = t2 + np.array([0.022, 0.001, -0.005])
-    thumb = sdf.chain([t0, t1, t2, t3], [0.0195, 0.0148, 0.0131, 0.0114], k=0.005)
+    S = np.array([HAND_L, HAND_K, HAND_W])
+    t0 = np.array([WX, 0, 0]) + np.array([0.016, -0.01, 0.028]) * S
+    t1 = t0 + np.array([0.032, -0.015, 0.016]) * S
+    t2 = t1 + np.array([0.028, -0.004, 0.0]) * HAND_L
+    t3 = t2 + np.array([0.022, 0.001, -0.005]) * HAND_L
+    thumb = sdf.chain([t0, t1, t2, t3], [r * HAND_K for r in (0.0195, 0.0148, 0.0131, 0.0114)], k=0.005)
     hand = palm().smooth_union(knuckles(), 0.007).smooth_union(_block(fingers), 0.01)
     return hand.smooth_union(thumb, 0.009)
 
@@ -196,11 +212,12 @@ def hand_fist():
         base = np.array([WX + kx - 0.001, -0.001, z * 0.96])
         pts = _wrap(base, L, (gx, gy), GRIP_RADIUS + r0 * 0.82)
         fingers.append(finger_shape(pts, r0 * 1.02, r1))
-    R = GRIP_RADIUS + 0.0105
+    R = GRIP_RADIUS + 0.0105 * HAND_K
     ring = lambda deg, z: np.array([gx + R * np.cos(np.radians(deg)), gy + R * np.sin(np.radians(deg)), z])  # noqa: E731
-    t0 = np.array([WX + 0.016, -0.012, 0.029])
-    t1 = np.array([WX + 0.043, -0.03, 0.043])
-    thumb = sdf.chain([t0, t1, ring(-140, 0.042), ring(-88, 0.037)], [0.0195, 0.0148, 0.0131, 0.0114], k=0.005)
+    t0 = np.array([WX + 0.016 * HAND_L, -0.012 * HAND_K, 0.029 * HAND_W])
+    t1 = np.array([WX + 0.043 * HAND_L, -0.03, 0.043 * HAND_W])
+    thumb = sdf.chain([t0, t1, ring(-140, 0.042 * HAND_W), ring(-88, 0.037 * HAND_W)],
+                      [r * HAND_K for r in (0.0195, 0.0148, 0.0131, 0.0114)], k=0.005)
     hand = palm().smooth_union(knuckles(True), 0.006).smooth_union(_block(fingers), 0.009)
     return hand.smooth_union(thumb, 0.008)
 
@@ -218,127 +235,34 @@ def leg_tube(side=1):
     x = HIP[0] * side
     y0, y1 = 1.0, 0.055
     T = lambda y: (y0 - y) / (y0 - y1)  # noqa: E731
-    w = {T(1.0): 0.089, T(0.9): 0.093, T(0.78): 0.086, T(0.64): 0.072, T(KNEE_Y + 0.02): 0.058, T(0.45): 0.057,
-         T(0.37): 0.06, T(0.24): 0.046, T(0.12): 0.035, T(0.055): 0.035}
-    f = {T(1.0): 0.092, T(0.9): 0.094, T(0.78): 0.088, T(0.64): 0.072, T(KNEE_Y + 0.02): 0.06, T(0.45): 0.053,
-         T(0.37): 0.05, T(0.24): 0.042, T(0.12): 0.036, T(0.055): 0.037}
-    k = {T(1.0): 0.1, T(0.9): 0.092, T(0.78): 0.082, T(0.64): 0.066, T(KNEE_Y + 0.02): 0.052, T(0.45): 0.062,
-         T(0.37): 0.072, T(0.24): 0.052, T(0.12): 0.037, T(0.055): 0.041}
-    cl = {T(1.0): -0.004 * side, T(0.86): -0.005 * side, T(0.7): 0.0, 1.0: 0.0}
+    if FEMALE:  # full thighs high up, slim knees, calves and ankles
+        w = {T(1.0): 0.094, T(0.9): 0.096, T(0.78): 0.08, T(0.64): 0.064, T(KNEE_Y + 0.02): 0.05, T(0.45): 0.049,
+             T(0.37): 0.051, T(0.24): 0.038, T(0.12): 0.029, T(0.055): 0.029}
+        f = {T(1.0): 0.09, T(0.9): 0.09, T(0.78): 0.08, T(0.64): 0.064, T(KNEE_Y + 0.02): 0.052, T(0.45): 0.046,
+             T(0.37): 0.043, T(0.24): 0.035, T(0.12): 0.03, T(0.055): 0.031}
+        k = {T(1.0): 0.104, T(0.9): 0.09, T(0.78): 0.076, T(0.64): 0.06, T(KNEE_Y + 0.02): 0.046, T(0.45): 0.054,
+             T(0.37): 0.062, T(0.24): 0.044, T(0.12): 0.031, T(0.055): 0.034}
+        cl = {T(1.0): -0.008 * side, T(0.86): -0.006 * side, T(0.7): 0.0, 1.0: 0.0}
+    else:
+        w = {T(1.0): 0.086, T(0.9): 0.09, T(0.78): 0.083, T(0.64): 0.069, T(KNEE_Y + 0.02): 0.056, T(0.45): 0.055,
+             T(0.37): 0.058, T(0.24): 0.044, T(0.12): 0.033, T(0.055): 0.033}
+        f = {T(1.0): 0.089, T(0.9): 0.091, T(0.78): 0.085, T(0.64): 0.069, T(KNEE_Y + 0.02): 0.058, T(0.45): 0.051,
+             T(0.37): 0.048, T(0.24): 0.04, T(0.12): 0.034, T(0.055): 0.035}
+        k = {T(1.0): 0.097, T(0.9): 0.089, T(0.78): 0.079, T(0.64): 0.063, T(KNEE_Y + 0.02): 0.05, T(0.45): 0.06,
+             T(0.37): 0.069, T(0.24): 0.05, T(0.12): 0.035, T(0.055): 0.039}
+        cl = {T(1.0): -0.004 * side, T(0.86): -0.005 * side, T(0.7): 0.0, 1.0: 0.0}
     cf = {0.0: 0.0, T(KNEE_Y): 0.008, T(0.3): -0.004, T(0.12): -0.012, 1.0: -0.016}
     return skin(Tube((x, y0, 0.0), (x, y1, -0.02), w, f, k=k, cl=cl, cf=cf, cap=0.03))
 
 
 def foot(side=1):
     x = HIP[0] * side
-    ft = Tube((x, 0.04, -0.07), (x + 0.012 * side, 0.032, 0.2), {0: 0.034, 0.3: 0.04, 0.75: 0.044, 1: 0.036},
+    g = 0.88 if FEMALE else 1.0
+    ft = Tube((x, 0.04, -0.07), (x + 0.012 * side, 0.032, -0.07 + 0.27 * g),
+              {0: 0.034 * g, 0.3: 0.04 * g, 0.75: 0.044 * g, 1: 0.036 * g},
               {0: 0.04, 0.35: 0.05, 0.75: 0.022, 1: 0.016}, k={0: 0.04, 1: 0.026}, n=2.4,
               front=(0, 1, 0), cap=0.02)
     return skin(ft.intersect(sdf.plane((0, 0.0, 0), (0, -1, 0), extent=1.0)))
-
-
-# ----------------------------------------------------------------------------- head
-
-EYE_C = np.array([0.0335, 1.661, 0.0635])  # eyeball center (left); radius EYE_R
-EYE_R = 0.015
-EYE_GAZE = np.array([0.0, -0.04, 1.0])  # the eyes look straight ahead, a touch down
-LID_UP = 0.0066  # upper lid edge above the eye center (at the front of the eyeball)
-LID_DN = -0.0078  # lower lid edge
-UP_LID_N = (0.0, -1.0, -0.32)  # lid planes: normal (the lid is on the side opposite to it)
-DN_LID_N = (0.0, 1.0, -0.2)
-
-
-def lid_plane(upper=True):
-    """(point, normal) of an eyelid's cutting plane (left eye) so that the lid edge crosses the
-    front of the eyeball at LID_UP / LID_DN from its center."""
-    n = np.array(UP_LID_N if upper else DN_LID_N)
-    h = (LID_UP if upper else LID_DN) + n[2] / n[1] * EYE_R
-    return EYE_C + np.array([0.0, h, 0.0]), n
-MOUTH_Y = 1.5835
-MOUTH_Z = 0.0985  # front of the lips' meeting line
-MOUTH_W = 0.0235  # half width of the mouth line
-
-
-def face_mass():
-    """Face and jaw as one tube along Y (chin -> forehead): the width curve draws the front
-    silhouette (cheekbones, jaw angles, square chin), the center offset and front/back depths draw
-    the profile (the jaw underside rises from the chin back to the jaw angles); a boxy section
-    low down makes the angular jaw and a squarer one at the cheeks gives the face a front plane
-    and side planes, on smooth surfaces. The axis runs at z = -0.012."""
-    y0, y1 = 1.53, 1.73
-    T = lambda y: (y - y0) / (y1 - y0)  # noqa: E731
-    w = {T(1.53): 0.022, T(1.545): 0.036, T(1.562): 0.05, T(1.58): 0.06, T(1.605): 0.066, T(1.635): 0.075,
-         T(1.665): 0.077, T(1.7): 0.078, T(1.73): 0.076}
-    cf = {T(1.53): 0.077, T(1.545): 0.069, T(1.562): 0.05, T(1.582): 0.032, T(1.605): 0.02, T(1.64): 0.01,
-          T(1.73): 0.0}
-    f = {T(1.53): 0.016, T(1.545): 0.028, T(1.562): 0.05, T(1.582): 0.072, T(1.605): 0.086, T(1.64): 0.086,
-         T(1.68): 0.092, T(1.73): 0.085}
-    k = {T(1.53): 0.012, T(1.545): 0.02, T(1.562): 0.05, T(1.582): 0.074, T(1.605): 0.086, T(1.64): 0.088,
-         T(1.73): 0.07}
-    n = {T(1.53): 3.4, T(1.562): 3.3, T(1.605): 3.0, T(1.645): 2.8, T(1.69): 2.3, 1.0: 2.0}
-    return Tube((0, y0, -0.012), (0, y1, -0.012), w, f, k=k, n=n, cf=cf, cap=0.012)
-
-
-def nose():
-    """Straight bridge from the brow to a rounded tip (boxy section: flat sides, a clean ridge),
-    small wings and a soft base."""
-    bridge = Tube((0, 1.677, 0.082), (0, 1.615, 0.112), {0: 0.0072, 0.45: 0.0078, 0.85: 0.0096, 1: 0.0102},
-                  {0: 0.0052, 0.5: 0.0066, 1: 0.0082}, k=0.018, n=2.7, front=(0, 0.5, 1), cap=0.008)
-    tip = sdf.ellipsoid((0, 1.6135, 0.1105), (0.0108, 0.0094, 0.0098))
-    wing = sdf.ellipsoid((0.0116, 1.6095, 0.1015), (0.008, 0.007, 0.008)).mirror_x()
-    return bridge.smooth_union(tip, 0.008).smooth_union(wing, 0.006)
-
-
-def head():
-    cran = sdf.ellipsoid((0, 1.688, -0.016), (0.082, 0.097, 0.102))
-    base = face_mass().smooth_union(cran, 0.03)
-    # square chin
-    base = base.smooth_union(sdf.box((0, 1.5435, 0.073), (0.04, 0.03, 0.032), radius=0.013), 0.012)
-    # cheekbones: a clear plane change under the outer eye corners
-    cheek = sdf.ellipsoid((0.05, 1.637, 0.054), (0.023, 0.011, 0.018)).mirror_x()
-    base = base.smooth_union(cheek, 0.02)
-    # brow ridge: two bars from the glabella to the temples, overhanging the eyes
-    brow = []
-    for sx in (1, -1):
-        brow.append(Tube((0, 1.681, 0.083), (sx * 0.067, 1.689, 0.056), {0: 0.0125, 0.55: 0.0128, 1: 0.0075},
-                         {0: 0.016, 0.5: 0.0165, 1: 0.009}, k=0.02, n=2.4, front=(0, 0.15, 1), cap=0.008))
-    base = base.smooth_union(sdf.union(*brow), 0.017)
-    base = base.smooth_union(nose(), 0.009)
-    # eye sockets (the eyeballs sit in them), lids around an almond opening
-    base = base.smooth_subtract(sdf.ellipsoid(EYE_C + [0.0005, -0.0005, 0.012], (0.0185, 0.0135, 0.0155)).mirror_x(),
-                                0.005)
-    up = sdf.sphere(EYE_C, EYE_R + 0.0021).intersect(sdf.plane(*lid_plane(True), extent=0.05))
-    dn = sdf.sphere(EYE_C, EYE_R + 0.0014).intersect(sdf.plane(*lid_plane(False), extent=0.05))
-    base = base.smooth_union(up.mirror_x(), 0.0028).smooth_union(dn.mirror_x(), 0.0035)
-    # mouth: lips as soft volumes, a crisp meeting line with the corners turned down a touch,
-    # a hollow under the lower lip above the chin
-    lips = sdf.ellipsoid((0, MOUTH_Y + 0.0042, MOUTH_Z - 0.0045), (0.021, 0.0048, 0.0075)).smooth_union(
-        sdf.ellipsoid((0, MOUTH_Y - 0.0052, MOUTH_Z - 0.0062), (0.0185, 0.0056, 0.0078)), 0.004)
-    base = base.smooth_union(lips, 0.006)
-    line = sdf.chain([(-MOUTH_W, MOUTH_Y - 0.0018, MOUTH_Z - 0.006), (0, MOUTH_Y, MOUTH_Z + 0.0005),
-                      (MOUTH_W, MOUTH_Y - 0.0018, MOUTH_Z - 0.006)], 0.0021, k=0.004)
-    base = base.smooth_subtract(line, 0.0028)
-    base = base.smooth_subtract(sdf.ellipsoid((0, 1.5685, 0.097), (0.015, 0.0036, 0.007)), 0.006)
-    # ears
-    ear = sdf.ellipsoid((0.077, 1.632, -0.02), (0.013, 0.03, 0.019))
-    ear = ear.smooth_subtract(sdf.ellipsoid((0.088, 1.628, -0.016), (0.008, 0.018, 0.011)), 0.004)
-    base = base.smooth_union(ear.mirror_x(), 0.008)
-    return skin(base)
-
-
-HEAD_SCALE = 1.06
-HEAD_PIVOT = np.array([0.0, 1.53, 0.04])
-
-
-def head_xf(p):
-    """Rest position of a point modeled in head() space after the head scaling."""
-    return HEAD_PIVOT + (np.asarray(p, float) - HEAD_PIVOT) * HEAD_SCALE
-
-
-def head_scaled():
-    """The head is modeled at 1.0 and scaled up about the chin (6.5-head heroic proportion)."""
-    M = m3.translation_matrix(HEAD_PIVOT) @ m3.scale_matrix(HEAD_SCALE) @ m3.translation_matrix(-HEAD_PIVOT)
-    return sdf.Transformed(head(), M)
 
 
 # ----------------------------------------------------------------------------- assembly
@@ -351,16 +275,6 @@ def body_sdf():
     legs = leg_tube(1).smooth_union(foot(1), 0.03).union(leg_tube(-1).smooth_union(foot(-1), 0.03))
     core = core.smooth_union(legs, 0.045)
     return core.smooth_union(head_scaled(), 0.014)
-
-
-def upper_body_test():
-    """Torso + neck + left arm only (approach test)."""
-    core = sdf.smooth_union(torso(), shoulders(), k=0.05).smooth_union(neck(), 0.04)
-    return core.smooth_union(arm(1), 0.035)
-
-
-def head_test():
-    return head().smooth_union(skin(neck()), 0.03)
 
 
 def hand_center(side=1):

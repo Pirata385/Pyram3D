@@ -25,6 +25,11 @@ sys.path.insert(0, str(next(p for p in HERE.parents if (p / "pyram3d").is_dir())
 import pyram3d as p3  # noqa: E402
 from pyram3d import math3d as m3  # noqa: E402
 
+# NIRYK_P2_BODY selects the body being built (one per process: the modeling modules read the
+# proportions below at import time); build_characters.py sets it.
+BODY = os.environ.get("NIRYK_P2_BODY", "human_m")
+FEMALE = BODY.endswith("_f")
+
 # NIRYK_P2_OUT=<dir> sends exports and review sheets there instead (trial builds that must not
 # replace the GLBs the game imports)
 _OUT = os.environ.get("NIRYK_P2_OUT")
@@ -39,22 +44,24 @@ SLOT_DEFAULTS = {  # GLB base colors: white for the tinted slots (the client mul
     "Skin": "#ffffff",
     "Hair": "#ffffff",
     "Eye": "#ffffff",
-    "EyeWhite": "#f4f0e8",  # not tinted
-    "Dark": "#241c26",  # not tinted (pupils)
+    "EyeWhite": "#f7f4ef",  # not tinted
+    "EyeShine": "#ffffff",  # not tinted, emissive: the eye highlights stay white in any light
+    "Dark": "#2a1f26",  # not tinted (pupils, lash lines, mouth line)
     "Cloth_A": "#ffffff",
     "Cloth_B": "#ffffff",
     "Leather": "#ffffff",
     "Metal": "#ffffff",
 }
 # Default tints of the starter look (the client's defaults; used for the review renders).
+# (the game's defaults: src/shared/appearance.ts defaultAppearance and CharacterView SLOT_DEFAULTS)
 TINTS = {
-    "Skin": "#e8b48e",
-    "Hair": "#5e3a24",
+    "Skin": "#e8b994",
+    "Hair": "#5b3a26",
     "Eye": "#3f8a5c",
-    "Cloth_A": "#4d7d3c",
-    "Cloth_B": "#6e5a48",
-    "Leather": "#7c5032",
-    "Metal": "#b9c0ca",
+    "Cloth_A": "#7a2f3a" if FEMALE else "#7a5236",
+    "Cloth_B": "#5e4c40",
+    "Leather": "#7a4a2c",
+    "Metal": "#bcc4ce",
 }
 _SLOT_CACHE: dict[str, p3.Material] = {}
 
@@ -64,7 +71,8 @@ def slot(name: str) -> p3.Material:
     if name not in _SLOT_CACHE:
         metal = name == "Metal"
         _SLOT_CACHE[name] = p3.Material(name, SLOT_DEFAULTS[name], metallic=0.6 if metal else 0.0,
-                                        roughness=0.4 if metal else 0.85)
+                                        roughness=0.4 if metal else (1.0 if name == "Hair" else 0.85),
+                                        emissive="#ffffff" if name == "EyeShine" else "#000000")
     return _SLOT_CACHE[name]
 
 
@@ -74,12 +82,57 @@ def slot(name: str) -> p3.Material:
 HEIGHT = 1.785
 ARM_DOWN = 40.0  # rest pose: degrees below the horizontal
 
-SHOULDER = np.array([0.185, 1.448, -0.03])  # upper-arm joint (left)
+SHOULDER = np.array([0.166, 1.44, -0.03]) if FEMALE else np.array([0.183, 1.448, -0.03])  # upper-arm joint (left)
 UPPER_ARM = 0.295
 FOREARM = 0.262
 HAND = 0.19
 HIP = np.array([0.098, 0.95, 0.0])
 KNEE_Y, ANKLE_Y = 0.515, 0.088
+
+
+# Final proportions. Every body is modeled in one design space (the male's size); at export the
+# legs are lengthened (anime long legs: the stretch is spread between the ankles and the hips, the
+# feet and everything above the hips only move) and the whole female is scaled down. Meshes,
+# skeleton and sockets all go through xf_points; rig weights are computed in design space.
+LEG_EXTRA = 0.05 if FEMALE else 0.04  # meters added to the legs (design space)
+BODY_SCALE = 0.93 if FEMALE else 1.0
+_WY = np.linspace(-1.0, 3.0, 4001)
+_G = np.interp(_WY, [0.1, 0.2, 0.8, 0.92], [0.0, 1.0, 1.0, 0.0])
+_S = np.concatenate([[0.0], np.cumsum(0.5 * (_G[1:] + _G[:-1]) * np.diff(_WY))])
+_S /= _S[-1]
+
+
+def warp_y(y):
+    return np.asarray(y, float) + LEG_EXTRA * np.interp(y, _WY, _S)
+
+
+def xf_points(P) -> np.ndarray:
+    """Design space -> final rest space (leg stretch, then the body scale)."""
+    P = np.array(P, float)
+    one = P.ndim == 1
+    P = np.atleast_2d(P).copy()
+    P[:, 1] = warp_y(P[:, 1])
+    P *= BODY_SCALE
+    return P[0] if one else P
+
+
+def xf_normals(P, N) -> np.ndarray:
+    """Normals at design-space points P after xf_points (inverse transpose of the y stretch)."""
+    N = np.array(N, float)
+    dy = 1.0 + LEG_EXTRA * np.interp(np.asarray(P, float)[:, 1], _WY, _G / _S_TOTAL)
+    N[:, 1] /= dy
+    return N / np.maximum(np.linalg.norm(N, axis=1, keepdims=True), 1e-12)
+
+
+_S_TOTAL = float(np.sum(0.5 * (_G[1:] + _G[:-1]) * np.diff(_WY)))
+
+
+def xf_mesh(m: p3.Mesh) -> p3.Mesh:
+    """Moves a design-space mesh (and its frozen normals) to the final rest space."""
+    if m.normals is not None:
+        m.normals = xf_normals(m.vertices, m.normals)
+    m.vertices = xf_points(m.vertices)
+    return m
 
 
 def arm_dir(side: int = 1) -> np.ndarray:
@@ -156,22 +209,24 @@ def grip_frame(side: int = -1):
     return pos, rot
 
 
-def build_skeleton() -> p3.Skeleton:
+def build_skeleton(final: bool = True) -> p3.Skeleton:
+    """The rig in final rest space (final=False: in design space, for weights and tests)."""
     J = joints()
+    f = xf_points if final else (lambda p: np.asarray(p, float))
     sk = p3.Skeleton("Rig")
     for name in ("Hips", "Spine", "Chest", "Neck", "Head"):
         a, b = J[name]
-        sk.add_bone(name, a, b, parent=PARENT.get(name))
+        sk.add_bone(name, f(a), f(b), parent=PARENT.get(name))
     for part in SIDED:
         a, b = J["Left" + part]
         for side, (pa, pb) in (("Left", (a, b)), ("Right", (mirror(a), mirror(b)))):
             par = PARENT[part]
             par = par if par in ("Hips", "Chest") else side + par
-            sk.add_bone(side + part, pa, pb, parent=par)
+            sk.add_bone(side + part, f(pa), f(pb), parent=par)
     pos, rot = grip_frame(-1)
-    sk.add_socket("Socket_Weapon_R", "RightHand", pos, rotation=rot)
-    sk.add_socket("Socket_Back", "Chest", (0, 1.32, -0.2), rotation=(0, 0, 0))
-    sk.add_socket("Socket_Head", "Head", (0, HEIGHT, 0))
+    sk.add_socket("Socket_Weapon_R", "RightHand", f(pos), rotation=rot)
+    sk.add_socket("Socket_Back", "Chest", f((0, 1.32, -0.2)), rotation=(0, 0, 0))
+    sk.add_socket("Socket_Head", "Head", f((0, HEIGHT, 0)))
     return sk
 
 

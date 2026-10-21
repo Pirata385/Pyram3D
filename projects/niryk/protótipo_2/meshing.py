@@ -37,7 +37,7 @@ def drop_faces(m: p3.Mesh, vert_mask: np.ndarray, rings: int = 0) -> int:
 
 def mesh_sdf(shape, cell: float, target: int, max_edge=None, name: str = "Mesh", taubin: int = 4,
              verbose: bool = True, colors: bool | None = None, bounds=None, outside=None, hidden=None,
-             rings: int = 4) -> p3.Mesh:
+             rings: int = 4, before_decimate=None) -> p3.Mesh:
     """Mesh `shape` (optionally only inside `bounds` = (lo, hi): the cut is left open), fair it,
     decimate it to `target` triangles and give it analytic normals.
 
@@ -45,6 +45,8 @@ def mesh_sdf(shape, cell: float, target: int, max_edge=None, name: str = "Mesh",
              before decimation; the open border must lie where something covers it)
     hidden:  fn(points) -> bool, vertices hidden under something else (garments, hair, the body):
              their faces are dropped (deep ones before decimation, the rest after it)
+    before_decimate: fn(mesh) called on the fine mesh (e.g. to mark face regions with temporary
+             materials whose borders the decimation keeps)
     """
     t0 = time.time()
     m = shape.to_mesh(cell=cell, name=name, colors=colors, band=1.5, bounds=bounds,
@@ -57,6 +59,8 @@ def mesh_sdf(shape, cell: float, target: int, max_edge=None, name: str = "Mesh",
         drop_faces(m, outside(m.vertices))
     if hidden is not None:
         drop_faces(m, hidden(m.vertices), rings=rings)
+    if before_decimate is not None:
+        before_decimate(m)
     n1 = m.num_triangles
     t1 = time.time()
     if target and m.num_triangles > target:
@@ -94,3 +98,27 @@ def sizing(regions, default: float):
             done |= m
         return out
     return f
+
+
+def cavity(m: p3.Mesh, smooth: int = 2) -> np.ndarray:
+    """Per-vertex concavity: how far a vertex sits below the average of its neighbors, along its
+    normal, relative to the local edge length (> 0 in grooves and creases, < 0 on ridges)."""
+    F = np.asarray(m.faces, dtype=np.int64).reshape(-1, 3)
+    n = m.num_vertices
+    E = np.concatenate([F[:, [0, 1]], F[:, [1, 2]], F[:, [2, 0]]])
+    E = np.concatenate([E, E[:, ::-1]])
+    deg = np.bincount(E[:, 0], minlength=n).astype(float)
+    S = np.zeros((n, 3))
+    np.add.at(S, E[:, 0], m.vertices[E[:, 1]])
+    avg = S / np.maximum(deg, 1)[:, None]
+    L = avg - m.vertices
+    el = np.zeros(n)
+    np.add.at(el, E[:, 0], np.linalg.norm(m.vertices[E[:, 1]] - m.vertices[E[:, 0]], axis=1))
+    el /= np.maximum(deg, 1)
+    N = m.normals if m.normals is not None else m.vertex_normals()
+    c = np.einsum("ij,ij->i", L, N) / np.maximum(el, 1e-9)
+    for _ in range(smooth):
+        s = np.zeros(n)
+        np.add.at(s, E[:, 0], c[E[:, 1]])
+        c = 0.5 * c + 0.5 * s / np.maximum(deg, 1)
+    return c

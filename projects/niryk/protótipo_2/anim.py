@@ -18,6 +18,7 @@ import math
 import numpy as np
 
 import common  # noqa: F401  (puts the Pyram3D root on sys.path)
+from common import FEMALE
 import pyram3d as p3
 from pyram3d import math3d as m3
 
@@ -309,13 +310,16 @@ def sample(rig: Rig, feet: Feet, clip: str, t: float) -> Pose:
         lean = 14 if run else (6 if back else 4)
         yaw = (9 if run else 6) * cyc
         hip_turn = 28.0 * strafe  # strafing: the hips turn toward the travel, the chest stays front
-        P["Hips"] = qm(qy(yaw + hip_turn), qx(lean * 0.5), qz(2.5 * cyc))
+        P["Hips"] = qm(qy(yaw + hip_turn), qx(lean * 0.5), qz((4.0 if FEMALE else 2.5) * cyc))
         P["Spine"] = qm(qy(-yaw * 0.5 - hip_turn * 0.5), qx(lean * 0.3))
         P["Chest"] = qm(qy(-yaw * 0.9 - hip_turn * 0.5), qx(lean * 0.2))
         P["Neck"] = qx(-lean * 0.5)
         P["Head"] = qm(qx(-lean * 0.4), qy(yaw * 0.3))
+        # female: the feet land closer to the center line
+        track = {"Left": (-0.02, 0.0, 0.0), "Right": (0.02, 0.0, 0.0)} if FEMALE else None
         if run:
-            locomotion(rig, feet, P, phase, (0, 0, 1), RUN, dur, stance=0.4, lift=0.2, roll_off=40, roll_strike=-8)
+            locomotion(rig, feet, P, phase, (0, 0, 1), RUN, dur, stance=0.4, lift=0.2, roll_off=40, roll_strike=-8,
+                       spread=track)
         elif back:
             # walking backward: the swing goes back; toes touch first, the heel lowers
             locomotion(rig, feet, P, phase, (0, 0, -1), BACK, dur, stance=0.62, lift=0.08, roll_off=-10,
@@ -327,9 +331,10 @@ def sample(rig: Rig, feet: Feet, clip: str, t: float) -> Pose:
             locomotion(rig, feet, P, phase, (strafe, 0, 0), WALK, dur, stance=0.58, lift=0.09, roll_off=18,
                        roll_strike=-6, spread=spread, foot_yaw=hip_turn * 0.8, pole_yaw=hip_turn)
         else:
-            locomotion(rig, feet, P, phase, (0, 0, 1), WALK, dur)
+            locomotion(rig, feet, P, phase, (0, 0, 1), WALK, dur, spread=track)
         arm_sw = (48 if run else (14 if back else 22)) * cyc * (0.5 if strafe else 1.0)
-        relaxed_arm(rig, P, "Left", swing=arm_sw, out=12 if run else 10, elbow=75 if run else 18)
+        relaxed_arm(rig, P, "Left", swing=arm_sw, out=(10 if run else 7) if FEMALE else (12 if run else 10),
+                    elbow=75 if run else 18)
         # right hand carries the sword: blade down and back, the arm swinging opposite
         sw_r = math.radians(25 if run else 15) * math.sin(phase * two_pi + math.pi) * (0.5 if strafe else 1.0)
         ua = (-0.2, -math.cos(sw_r), math.sin(sw_r) + (0.12 if run else 0.04))
@@ -337,13 +342,13 @@ def sample(rig: Rig, feet: Feet, clip: str, t: float) -> Pose:
         rig.sword_arm(P, ua=ua, fa=fa, blade=(-0.3, -0.62 if not run else -0.5, -0.72))
     elif clip == "Idle":
         br = math.sin(phase * two_pi)
-        P.hips = np.array([0.0, -0.01 + 0.004 * br, 0.0])
-        P["Hips"] = qy(-6)
-        P["Spine"] = qm(qx(1.5 * br), qy(2))
-        P["Chest"] = qm(qx(1.5 * br), qy(4))
-        P["Head"] = qm(qy(2 + 3 * math.sin(phase * two_pi * 0.5)), qx(-2))
-        stand(rig, feet, P, wide=0.05)
-        relaxed_arm(rig, P, "Left", swing=4 + 2 * br, out=12, elbow=16)
+        P.hips = np.array([0.012 if FEMALE else 0.0, -0.01 + 0.004 * br, 0.0])
+        P["Hips"] = qm(qy(-6), qz(3.5)) if FEMALE else qy(-6)  # female: weight on one leg
+        P["Spine"] = qm(qx(1.5 * br), qy(2), qz(-2.0 if FEMALE else 0.0))
+        P["Chest"] = qm(qx(1.5 * br), qy(4), qz(-1.5 if FEMALE else 0.0))
+        P["Head"] = qm(qy(2 + 3 * math.sin(phase * two_pi * 0.5)), qx(-2), qz(2.5 if FEMALE else 0.0))
+        stand(rig, feet, P, wide=0.02 if FEMALE else 0.05)
+        relaxed_arm(rig, P, "Left", swing=4 + 2 * br, out=8 if FEMALE else 12, elbow=22 if FEMALE else 16)
         rig.sword_arm(P, **SWORD_IDLE)
     elif clip in ("Attack1", "Attack2"):
         attack(rig, feet, P, clip, t)
