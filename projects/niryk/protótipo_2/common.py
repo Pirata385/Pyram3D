@@ -29,6 +29,7 @@ from pyram3d import math3d as m3  # noqa: E402
 # proportions below at import time); build_characters.py sets it.
 BODY = os.environ.get("NIRYK_P2_BODY", "human_m")
 FEMALE = BODY.endswith("_f")
+HARPIN = BODY.startswith("harpin")
 
 # NIRYK_P2_OUT=<dir> sends exports and review sheets there instead (trial builds that must not
 # replace the GLBs the game imports)
@@ -51,17 +52,21 @@ SLOT_DEFAULTS = {  # GLB base colors: white for the tinted slots (the client mul
     "Cloth_B": "#ffffff",
     "Leather": "#ffffff",
     "Metal": "#ffffff",
+    "Plume": "#ffffff",  # Harpins: wings, tail, legs and temple tufts (the client's plume color)
+    "Talon": "#ffffff",  # Harpins: claws (the client's default dark tint)
 }
 # Default tints of the starter look (the client's defaults; used for the review renders).
 # (the game's defaults: src/shared/appearance.ts defaultAppearance and CharacterView SLOT_DEFAULTS)
 TINTS = {
     "Skin": "#e8b994",
-    "Hair": "#5b3a26",
+    "Hair": "#ecebe6" if HARPIN else "#5b3a26",  # Harpins: white hair, black plumes, ochre tunic
     "Eye": "#3f8a5c",
-    "Cloth_A": "#7a2f3a" if FEMALE else "#7a5236",
+    "Cloth_A": "#b08a3a" if HARPIN else ("#7a2f3a" if FEMALE else "#7a5236"),
     "Cloth_B": "#5e4c40",
     "Leather": "#7a4a2c",
     "Metal": "#bcc4ce",
+    "Plume": "#46414f",  # black (#2b2830) as the client lifts it (liftDark)
+    "Talon": "#3a3036",
 }
 _SLOT_CACHE: dict[str, p3.Material] = {}
 
@@ -82,12 +87,64 @@ def slot(name: str) -> p3.Material:
 HEIGHT = 1.785
 ARM_DOWN = 40.0  # rest pose: degrees below the horizontal
 
-SHOULDER = np.array([0.166, 1.44, -0.03]) if FEMALE else np.array([0.183, 1.448, -0.03])  # upper-arm joint (left)
+if FEMALE:
+    SHOULDER = np.array([0.163 if HARPIN else 0.166, 1.44, -0.03])  # upper-arm joint (left)
+else:
+    SHOULDER = np.array([0.176 if HARPIN else 0.183, 1.448, -0.03])
 UPPER_ARM = 0.295
 FOREARM = 0.262
 HAND = 0.19
-HIP = np.array([0.098, 0.95, 0.0])
+HIP = np.array([0.094 if HARPIN else 0.098, 0.95, 0.0])
 KNEE_Y, ANKLE_Y = 0.515, 0.088
+
+# Harpin anatomy (design space, left side). Digitigrade eagle legs: hip -> knee (forward, under
+# the tunic hem) -> hock (the backward "knee", the ankle) -> ball (toe roots, on the ground) ->
+# toe tip. Bones: UpperLeg = femur, LowerLeg = shin, Foot = tarsus, Toes = the front toes.
+H_KNEE = np.array([HIP[0], 0.7, 0.085])
+H_HOCK = np.array([HIP[0], 0.335, -0.1])
+H_BALL = np.array([HIP[0], 0.04, 0.045])
+H_TOE = np.array([HIP[0], 0.016, 0.17])
+# Folded wing (left), laid out on a gently curved surface behind the back: wing coordinates
+# (u outward, v up, d off the surface, outward = away from the body) -> design space. The surface
+# leans back going down (the tips clear the legs) and wraps forward around the body going out.
+# Root in the upper back (shoulder blade) -> elbow -> wrist (beside the head, at the crown's
+# height) -> tip of the longest primary (near the ankle): bones Wing1..3, along the arm (d = WING_D).
+WING_O = np.array([0.085, 1.375, -0.11])
+_WN = np.array([-0.15, 0.13, -1.0]) / np.linalg.norm([-0.15, 0.13, -1.0])
+_WV = np.array([0.0, 1.0, 0.0]) - _WN * _WN[1]
+_WV /= np.linalg.norm(_WV)
+_WU = np.cross(_WV, _WN)
+_WU = _WU if _WU[0] > 0 else -_WU
+WING_WRAP = 0.35
+
+
+def _wing_h(u, v):
+    u0 = WING_O[0]
+    bow = 0.075 * np.sin(np.pi * np.clip((0.15 - v) / 1.45, 0, 1)) ** 1.5  # the lower wing bows back
+    return -WING_WRAP * ((u + u0) ** 2 - u0 ** 2) + bow
+
+
+def wing_point(u, v, d=0.0):
+    """Design-space point of wing coordinates (arrays broadcast)."""
+    u, v, d = (np.asarray(a, float) for a in (u, v, d))
+    e = 1e-4
+    S = lambda uu, vv: (WING_O + _WU * np.expand_dims(uu, -1) + _WV * np.expand_dims(vv, -1)  # noqa: E731
+                        + _WN * np.expand_dims(_wing_h(uu, vv), -1))
+    du = S(u + e, v) - S(u - e, v)
+    dv = S(u, v + e) - S(u, v - e)
+    N = np.cross(du, dv)
+    N /= np.linalg.norm(N, axis=-1, keepdims=True)
+    N = np.where(np.sum(N * _WN, axis=-1, keepdims=True) < 0, -N, N)
+    return S(u, v) + N * np.expand_dims(d, -1)
+
+
+WING_D = 0.03
+WING_2D = {"root": (0.0, 0.0), "elbow": (0.07, 0.23), "wrist": (0.25, 0.385), "tip": (0.06, -1.235)}
+WING_ROOT, WING_ELBOW, WING_WRIST, WING_TIP = (wing_point(*WING_2D[k], WING_D) for k in ("root", "elbow", "wrist", "tip"))
+# Tail (Tail1..6): from the coccyx (under the tunic) back and down between the wings, then out
+# behind the legs, the brush curling up and a little to the left.
+TAIL_POINTS = np.array([(0, 0.95, -0.075), (0, 0.86, -0.17), (0, 0.745, -0.265), (0, 0.63, -0.37),
+                        (0.012, 0.555, -0.5), (0.04, 0.545, -0.64), (0.085, 0.6, -0.78)])
 
 
 # Final proportions. Every body is modeled in one design space (the male's size); at export the
@@ -176,6 +233,16 @@ def joints() -> dict[str, tuple[np.ndarray, np.ndarray]]:
         "LeftFoot": ((HIP[0], ANKLE_Y, -0.022), (HIP[0], 0.028, 0.118)),
         "LeftToes": ((HIP[0], 0.028, 0.118), (HIP[0], 0.022, 0.19)),
     }
+    if HARPIN:
+        J.update({
+            "LeftUpperLeg": (tuple(HIP), tuple(H_KNEE)),
+            "LeftLowerLeg": (tuple(H_KNEE), tuple(H_HOCK)),
+            "LeftFoot": (tuple(H_HOCK), tuple(H_BALL)),
+            "LeftToes": (tuple(H_BALL), tuple(H_TOE)),
+            "LeftWing1": (tuple(WING_ROOT), tuple(WING_ELBOW)),
+            "LeftWing2": (tuple(WING_ELBOW), tuple(WING_WRIST)),
+            "LeftWing3": (tuple(WING_WRIST), tuple(WING_TIP)),
+        })
     return {k: (np.array(a, float), np.array(b, float)) for k, (a, b) in J.items()}
 
 
@@ -189,8 +256,12 @@ PARENT = {
     "Spine": "Hips", "Chest": "Spine", "Neck": "Chest", "Head": "Neck",
     "Shoulder": "Chest", "UpperArm": "Shoulder", "LowerArm": "UpperArm", "Hand": "LowerArm",
     "UpperLeg": "Hips", "LowerLeg": "UpperLeg", "Foot": "LowerLeg", "Toes": "Foot",
+    "Wing1": "Chest", "Wing2": "Wing1", "Wing3": "Wing2",
 }
 SIDED = ["Shoulder", "UpperArm", "LowerArm", "Hand", "UpperLeg", "LowerLeg", "Foot", "Toes"]
+if HARPIN:
+    SIDED += ["Wing1", "Wing2", "Wing3"]
+TAIL_BONES = [f"Tail{i}" for i in range(1, 7)]
 
 # Sword grip, in the right hand's rest frame: the fist closes around this axis. Socket_Weapon_R
 # sits on it; its local +Y is the blade direction (the sword model: grip at the origin, blade
@@ -223,6 +294,8 @@ def build_skeleton(final: bool = True) -> p3.Skeleton:
             par = PARENT[part]
             par = par if par in ("Hips", "Chest") else side + par
             sk.add_bone(side + part, f(pa), f(pb), parent=par)
+    if HARPIN:
+        sk.add_chain(TAIL_BONES, [f(p) for p in TAIL_POINTS], parent="Hips")
     pos, rot = grip_frame(-1)
     sk.add_socket("Socket_Weapon_R", "RightHand", f(pos), rotation=rot)
     sk.add_socket("Socket_Back", "Chest", f((0, 1.32, -0.2)), rotation=(0, 0, 0))

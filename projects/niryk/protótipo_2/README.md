@@ -3,9 +3,18 @@
 Modelos lisos para câmera próxima (sobre o ombro e 1ª pessoa). Tudo é gerado por script:
 não edite os GLBs à mão.
 
+## Corpos
+
+`human_m`, `human_f` (humanos anime) e `harpin_m`, `harpin_f` (Harpins: asas enormes dobradas nas
+costas, pernas de águia digitígradas cobertas de plumas com garras, cauda longa emplumada, penas nas
+têmporas, orelhas pontudas). Todos saem de `build_characters.py`.
+
 ## Comandos
 
 ```bash
+# Todos os corpos (ou só alguns), em processos paralelos
+python projects/niryk/protótipo_2/build_characters.py [human_m] [human_f] [harpin_m] [harpin_f] [--fast] [--jobs 2]
+
 # Humano masculino + espada de ferro (GLBs, estatísticas e folhas de revisão)
 python projects/niryk/protótipo_2/build_human.py            # final (malha fina, ~5 min)
 python projects/niryk/protótipo_2/build_human.py --fast     # iteração rápida (~3 min)
@@ -119,3 +128,35 @@ ou na planta).
   `anim.py` — clipes.
 - `equipment.py` — espada de ferro. `build_human.py` — monta, exporta e renderiza a revisão.
 - `nature.py` — natureza da clareira (outro autor).
+
+## Harpins (`harpin_m`, `harpin_f`)
+
+Mesmo pipeline e mesmo rosto anime dos humanos, com:
+
+- **Asas** (nó `Wings`, slot `Plume`, ossos `Left/RightWing1..3` filhos do `Chest`): dobradas nas
+  costas, o punho na altura do alto da cabeça e as pontas perto dos tornozelos. Braço da asa liso
+  (SDF) e penas como **sólidos finos fechados** (seção em lente com a raque elevada e mais escura;
+  funcionam com material de um lado só). As fileiras (primárias, secundárias + terciárias, grandes e
+  pequenas coberteiras) se sobrepõem como telhas: cada pena é inclinada alguns graus no próprio eixo,
+  então vizinhas nunca se tocam. A dobra fica numa superfície curva (`common.wing_point`: inclinada
+  para trás embaixo, envolvendo o corpo para fora). Cada pena é rígida no seu osso (primárias na mão,
+  secundárias no antebraço, terciárias no úmero; as internas misturam um pouco o osso vizinho).
+- **Pernas de águia** (no nó `Body`): coxa sob a túnica, canela com volume de plumas terminando em
+  duas franjas de plumas pontudas (a de baixo abre sobre o calcanhar), tarso fino emplumado com um
+  punho de plumas sobre os dedos; 3 dedos para a frente e 1 para trás com escamas pintadas (`Skin`)
+  e garras curvas (`Talon`). Ossos: `UpperLeg` = fêmur, `LowerLeg` = canela, `Foot` = tarso,
+  `Toes` = dedos da frente.
+- **Cauda** (nó `Tail`, slot `Plume`, ossos `Tail1..6` a partir do `Hips`): longa, coberta de plumas
+  em telhas, com um pincel de mechas grandes que termina em pontas.
+- **Cabeça**: orelhas pontudas (`Head_Skin`), tufos de penas nas têmporas (`Head_Plumes`, `Plume`),
+  penteados `Hair_espetado`, `Hair_crista`, `Hair_plumado` (mechas anime e penas no slot `Hair`).
+- **Roupa**: a mesma túnica e gola com fendas para as asas, mais curta atrás com um entalhe sobre a
+  cauda; sem calça nem botas.
+- **Clipes**: os mesmos 10, com passos digitígrados (os dedos plantam e não deslizam; o tarso rola
+  sobre a base dos dedos; as garras se fecham no ar) e camadas de asas e cauda: respiração no `Idle`,
+  asas um pouco abertas e para trás ao andar e correr (livram as pernas), abertura no golpe, abertas
+  no `Hit`, meio abertas no `Death` (que cai de frente). Durações dos Harpins: `Walk` 0,76 s, `Run`
+  0,52 s, `WalkBack` 0,8 s, `StrafeLeft/Right` 0,68 s (passos curtos e rápidos; as velocidades são
+  as mesmas: o cliente toca o clipe pela velocidade real).
+- Revisão: `review/characters/harpin_*_wings.png` (asas no Idle, Run, golpe, Hit, Death; pernas de
+  perto), além das folhas dos humanos.

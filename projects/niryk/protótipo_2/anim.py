@@ -18,7 +18,7 @@ import math
 import numpy as np
 
 import common  # noqa: F401  (puts the Pyram3D root on sys.path)
-from common import FEMALE
+from common import FEMALE, HARPIN, TAIL_BONES, _WN
 import pyram3d as p3
 from pyram3d import math3d as m3
 
@@ -27,6 +27,8 @@ WALK, RUN = 1.9, 5.0
 BACK = WALK * 0.7  # BACKPEDAL_FACTOR
 DUR = {"Idle": 2.4, "Walk": 1.0, "Run": 0.64, "WalkBack": 1.0, "StrafeLeft": 0.8, "StrafeRight": 0.8,
        "Attack1": 0.5, "Attack2": 0.55, "Hit": 0.36, "Death": 1.2}
+if HARPIN:  # quick light steps: the digitigrade legs plant without stretching (no foot skating)
+    DUR.update({"Walk": 0.76, "Run": 0.52, "WalkBack": 0.8, "StrafeLeft": 0.68, "StrafeRight": 0.68})
 LOOPING = ("Idle", "Walk", "Run", "WalkBack", "StrafeLeft", "StrafeRight")
 HIT_TIME = {"Attack1": 0.2, "Attack2": 0.24}
 
@@ -245,10 +247,14 @@ class Feet:
         self.A0 = {s: rig.head[s + "Foot"] for s in ("Left", "Right")}  # ankles
         self.ball = {s: rig.head[s + "Toes"] for s in ("Left", "Right")}
         self.heel = {s: self.A0[s] + np.array([0.0, -self.A0[s][1] + 0.012, -0.05]) for s in ("Left", "Right")}
+        if HARPIN:  # digitigrade: the foot pivots on the ball both ways; the toes stay flat
+            self.heel = dict(self.ball)
 
-    def place(self, P, side, T, roll, yaw=0.0, pole=None, toes_flat=True):
+    def place(self, P, side, T, roll, yaw=0.0, pole=None, toes_flat=True, curl=0.0):
         """Foot of `side` translated by T (character space) from rest, pitched by `roll` deg
-        (+ = heel up, pivot on the ball; - = toes up, pivot on the heel), turned by `yaw`."""
+        (+ = heel up, pivot on the ball; - = toes up, pivot on the heel), turned by `yaw`.
+        Harpins: the foot is the tarsus (its 'heel' is the hock), the toes stay flat on the ground
+        unless `curl` (deg, the claws curling under) is given."""
         A0 = self.A0[side]
         piv = self.ball[side] if roll >= 0 else self.heel[side]
         Vp = piv - A0
@@ -256,12 +262,15 @@ class Feet:
         Rf = qm(Ry, qx(roll))
         ank = A0 + np.asarray(T, float) + rot(Ry, Vp) - rot(Rf, Vp)
         pole = rot(Ry, [0, 0, 1]) if pole is None else pole
-        toes = Ry if (toes_flat and roll > 0) else Rf
+        if HARPIN:
+            toes = qm(Ry, qx(curl))
+        else:
+            toes = Ry if (toes_flat and roll > 0) else Rf
         self.rig.leg(P, side, ank, pole, Rf, toes)
 
 
 def locomotion(rig, feet, P, phase, travel, speed, dur, stance=0.62, lift=0.1, roll_off=30.0, roll_strike=-14.0,
-               spread=None, foot_yaw=0.0, pole_yaw=0.0):
+               spread=None, foot_yaw=0.0, pole_yaw=0.0, curl=0.0):
     """Planted feet move backward along `travel` at exactly `speed` (stride = speed * dur)."""
     S = speed * dur
     travel = nrm(travel)
@@ -287,7 +296,8 @@ def locomotion(rig, feet, P, phase, travel, speed, dur, stance=0.62, lift=0.1, r
         if spread is not None:
             T = T + np.asarray(spread[side], float)
         fy = foot_yaw if side == "Left" else foot_yaw
-        feet.place(P, side, T, roll, yaw=fy, pole=rot(qy(pole_yaw), [0, 0, 1]))
+        cu = curl * math.sin(math.pi * s) ** 1.5 if u >= stance else 0.0  # claws curl under in the swing
+        feet.place(P, side, T, roll, yaw=fy, pole=rot(qy(pole_yaw), [0, 0, 1]), curl=cu)
 
 
 SWORD_IDLE = dict(ua=(-0.22, -0.96, -0.1), fa=(-0.08, -0.85, 0.5), blade=(0.06, -0.2, 1.0))
@@ -299,14 +309,17 @@ def sample(rig: Rig, feet: Feet, clip: str, t: float) -> Pose:
     phase = t / dur
     P = Pose()
     two_pi = 2 * math.pi
-    if clip in ("Walk", "Run", "WalkBack", "StrafeLeft", "StrafeRight"):
+    if HARPIN and clip == "Death":
+        harpin_death(rig, feet, P, t)
+    elif clip in ("Walk", "Run", "WalkBack", "StrafeLeft", "StrafeRight"):
         run = clip == "Run"
         back = clip == "WalkBack"
         strafe = 0 if not clip.startswith("Strafe") else (1 if clip == "StrafeLeft" else -1)
         cyc = math.sin(phase * two_pi)
         bob_amp = 0.035 if run else 0.02
+        crouch = (0.06 if run else 0.015) if not HARPIN else (0.11 if run else (0.095 if strafe else 0.075))
         P.hips = np.array([0.0, -bob_amp * 0.5 + bob_amp * 0.5 * math.cos(phase * two_pi * 2) * (-1 if run else 1)
-                           - (0.06 if run else 0.015), 0.0])
+                           - crouch, 0.0])
         lean = 14 if run else (6 if back else 4)
         yaw = (9 if run else 6) * cyc
         hip_turn = 28.0 * strafe  # strafing: the hips turn toward the travel, the chest stays front
@@ -317,7 +330,9 @@ def sample(rig: Rig, feet: Feet, clip: str, t: float) -> Pose:
         P["Head"] = qm(qx(-lean * 0.4), qy(yaw * 0.3))
         # female: the feet land closer to the center line
         track = {"Left": (-0.02, 0.0, 0.0), "Right": (0.02, 0.0, 0.0)} if FEMALE else None
-        if run:
+        if HARPIN:
+            harpin_steps(rig, feet, P, phase, dur, run, back, strafe, track)
+        elif run:
             locomotion(rig, feet, P, phase, (0, 0, 1), RUN, dur, stance=0.4, lift=0.2, roll_off=40, roll_strike=-8,
                        spread=track)
         elif back:
@@ -333,6 +348,8 @@ def sample(rig: Rig, feet: Feet, clip: str, t: float) -> Pose:
         else:
             locomotion(rig, feet, P, phase, (0, 0, 1), WALK, dur, spread=track)
         arm_sw = (48 if run else (14 if back else 22)) * cyc * (0.5 if strafe else 1.0)
+        if HARPIN:  # shorter backswing: the folded wings hang behind the arms
+            arm_sw = arm_sw * (0.7 if arm_sw < 0 else 0.85)
         relaxed_arm(rig, P, "Left", swing=arm_sw, out=(10 if run else 7) if FEMALE else (12 if run else 10),
                     elbow=75 if run else 18)
         # right hand carries the sword: blade down and back, the arm swinging opposite
@@ -386,6 +403,8 @@ def sample(rig: Rig, feet: Feet, clip: str, t: float) -> Pose:
         ua0, fa0, bl0 = (np.array(SWORD_IDLE[n]) for n in ("ua", "fa", "blade"))
         rig.sword_arm(P, ua=lerp(ua0, np.array([-0.8, -0.55, 0.2]), f), fa=lerp(fa0, np.array([-0.7, -0.3, 0.65]), f),
                       blade=lerp(bl0, np.array([-0.5, -0.8, 0.3]), f))
+    if HARPIN:
+        harpin_layers(rig, P, clip, t)
     return P
 
 
@@ -474,3 +493,124 @@ def bake(scene: p3.Scene, rig: Rig, clips=None):
                 anim.key(sock, "position", t, st, "LINEAR")
                 anim.key(sock, "rotation", t, sq, "LINEAR")
     return scene
+
+
+# ----------------------------------------------------------------------------- Harpins
+
+def harpin_steps(rig, feet, P, phase, dur, run, back, strafe, track):
+    """Digitigrade steps: the toes plant flat and stay put while the tarsus rocks over the ball
+    (push-off), the claws curl under in the swing."""
+    if run:
+        locomotion(rig, feet, P, phase, (0, 0, 1), RUN, dur, stance=0.34, lift=0.17, roll_off=38, roll_strike=-6,
+                   spread=track, curl=45)
+    elif back:
+        locomotion(rig, feet, P, phase, (0, 0, -1), BACK, dur, stance=0.6, lift=0.08, roll_off=-8, roll_strike=18,
+                   curl=20)
+    elif strafe:
+        hip_turn = 28.0 * strafe
+        spread = {"Left": (0.0, 0.0, 0.05 * strafe), "Right": (0.0, 0.0, -0.05 * strafe)}
+        locomotion(rig, feet, P, phase, (strafe, 0, 0), WALK, dur, stance=0.56, lift=0.09, roll_off=14, roll_strike=0,
+                   spread=spread, foot_yaw=hip_turn * 0.8, pole_yaw=hip_turn, curl=20)
+    else:
+        locomotion(rig, feet, P, phase, (0, 0, 1), WALK, dur, stance=0.58, lift=0.1, roll_off=28, roll_strike=-6,
+                   spread=track, curl=30)
+
+
+_WING_OPEN = {}
+
+
+def wing_targets(rig):
+    """Local rotations (Wing1, Wing2, Wing3) of the wings fully opened ('display' spread: arm out
+    and up, primaries out and down, the outer side facing back), per side."""
+    key = id(rig)
+    if key in _WING_OPEN:
+        return _WING_OPEN[key]
+    out = {}
+    for side, sx in (("Left", 1.0), ("Right", -1.0)):
+        m = np.array([sx, 1.0, 1.0])
+        n0 = _WN * m
+        D = [nrm(np.array(v) * m) for v in ((0.62, 0.62, -0.48), (0.93, 0.25, -0.27), (0.72, -0.62, -0.32))]
+        N = nrm(np.array([-0.1, 0.25, -0.96]) * m)
+        Qw = [frame_align(rig.dir[f"{side}Wing{i + 1}"], n0, D[i], N) for i in range(3)]
+        out[side] = (Qw[0], qm(qinv(Qw[0]), Qw[1]), qm(qinv(Qw[1]), Qw[2]))
+    _WING_OPEN[key] = out
+    return out
+
+
+def set_wings(rig, P, open_=0.0, pitch=0.0, hand=None, droop=0.0):
+    """Wings from the fold (open_ = 0) to the display spread (1); pitch (deg) swings the whole
+    wing back from the root (tips away from the legs); hand: the primaries' own opening (default
+    open_); droop (deg): the spread wing sags down at the shoulder."""
+    T = wing_targets(rig)
+    for side, sx in (("Left", 1), ("Right", -1)):
+        L1, L2, L3 = T[side]
+        o3 = open_ if hand is None else hand
+        P[side + "Wing1"] = qm(qx(pitch), qz(-sx * droop), m3.quat_slerp(I, L1, open_))
+        P[side + "Wing2"] = m3.quat_slerp(I, L2, open_)
+        P[side + "Wing3"] = m3.quat_slerp(I, L3, o3)
+
+
+def set_tail(P, sway=0.0, lift=0.0, phase=0.0, wave=0.0, curl=0.0, lag=0.75, side=0.0):
+    """Tail: a sideways wave traveling to the tip (sway deg at phase, delayed `lag` rad per bone),
+    lift (deg, + raises it back and up, mostly at the root), curl (deg per bone, + up), side (deg,
+    a constant sideways bend)."""
+    for i, b in enumerate(TAIL_BONES):
+        k = i / (len(TAIL_BONES) - 1)
+        w = sway * math.sin(phase - i * lag) * (0.6 + 0.6 * k) + side * (0.5 + k)
+        P[b] = qm(qy(w), qx(lift * (1.0 - 0.7 * k) + curl * k + wave * math.sin(phase - i * lag) * k))
+
+
+def harpin_layers(rig, P, clip, t):
+    """Wings and tail on top of the body clips."""
+    dur = DUR[clip]
+    ph = 2 * math.pi * t / dur
+    if clip == "Idle":
+        set_wings(rig, P, open_=0.03 + 0.025 * math.sin(ph), pitch=2.0 + 1.5 * math.sin(ph))
+        set_tail(P, sway=4.0, lift=2.0 + 2.0 * math.sin(ph), phase=ph, lag=0.6)
+    elif clip in ("Walk", "WalkBack", "StrafeLeft", "StrafeRight"):
+        set_wings(rig, P, open_=0.07 + 0.03 * math.sin(2 * ph), pitch=17.0 + 2.0 * math.sin(2 * ph))
+        set_tail(P, sway=7.0, lift=4.0, phase=ph + math.pi, lag=0.7, wave=2.0)
+    elif clip == "Run":
+        set_wings(rig, P, open_=0.2 + 0.06 * math.sin(2 * ph), pitch=26.0 + 3.0 * math.sin(2 * ph))
+        set_tail(P, sway=6.0, lift=16.0, phase=ph + math.pi, lag=0.8, wave=3.0, curl=-2.0)
+    elif clip in ("Attack1", "Attack2"):
+        k = math.exp(-((t - HIT_TIME[clip]) / 0.12) ** 2)
+        set_wings(rig, P, open_=0.08 + 0.32 * k, pitch=8.0 + 10.0 * k)
+        sgn = 1 if clip == "Attack1" else -1
+        set_tail(P, sway=0.0, lift=6.0 * k, side=-sgn * 9.0 * math.sin(math.pi * min(t / dur, 1.0)))
+    elif clip == "Hit":
+        k = math.exp(-((t - 0.08) / 0.09) ** 2) if t > 0.08 else smooth(t / 0.08)
+        set_wings(rig, P, open_=0.72 * k, pitch=6.0 + 12.0 * k, hand=0.5 * k)
+        set_tail(P, sway=0.0, lift=14.0 * k, curl=4.0 * k, side=4.0 * k)
+    elif clip == "Death":
+        o = smooth((t - 0.15) / 0.55)
+        set_wings(rig, P, open_=0.5 * o, pitch=-30.0 * o, hand=0.35 * o, droop=25.0 * o)
+        set_tail(P, lift=-10.0 * o, side=10.0 * o, curl=-4.0 * o)
+
+
+def harpin_death(rig, feet, P, t):
+    """Knees buckle, then a fall forward onto the chest, the head turned aside; the wings end
+    half open over the body (see harpin_layers)."""
+    b = smooth(t / 0.3)
+    f = smooth((t - 0.2) / 0.55)
+    P.hips = np.array([0.03 * f, -0.18 * b - 0.66 * f, 0.36 * f])
+    P["Hips"] = qm(qy(-12 * f), qx(10 * b * (1 - f) + 80 * f), qz(-6 * f))
+    P["Spine"] = qx(8 * b * (1 - f) + 2 * f)
+    P["Chest"] = qm(qx(6 * b * (1 - f) - 6 * f), qy(8 * f))
+    P["Neck"] = qx(-14 * f)
+    P["Head"] = qm(qy(55 * f), qx(-18 * f), qz(-12 * f))
+    if f < 0.02:
+        stand(rig, feet, P, wide=0.05)
+    else:
+        for side, sgn in (("Left", 1), ("Right", -1)):
+            P[side + "UpperLeg"] = qm(qz(sgn * 8 * f), qx(-30 * b * (1 - f) - 70 * f))
+            P[side + "LowerLeg"] = qx(40 * b * (1 - f) + 30 * f * (1.2 if side == "Left" else 0.8))
+            P[side + "Foot"] = qx(-30 * b * (1 - f) - 40 * f)
+            P[side + "Toes"] = qx(30 * f)
+    # arms thrown forward as the body lands
+    U = nrm(lerp(np.array([0.2, -0.95, 0.1]), np.array([0.65, 0.05, 0.75]), f))
+    F = nrm(lerp(np.array([0.1, -0.85, 0.45]), np.array([0.35, -0.1, 0.95]), f))
+    rig.arm(P, "Left", U, F)
+    ua0, fa0, bl0 = (np.array(SWORD_IDLE[n]) for n in ("ua", "fa", "blade"))
+    rig.sword_arm(P, ua=lerp(ua0, np.array([-0.7, 0.0, 0.7]), f), fa=lerp(fa0, np.array([-0.45, -0.15, 0.9]), f),
+                  blade=lerp(bl0, np.array([-0.7, -0.3, 0.6]), f))

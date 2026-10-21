@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from common import (FEMALE, FOREARM, GRIP_OFFSET, GRIP_RADIUS, HIP, KNEE_Y, SHOULDER, UPPER_ARM, arm_rot,
+from common import (FEMALE, FOREARM, GRIP_OFFSET, GRIP_RADIUS, HARPIN, HIP, KNEE_Y, SHOULDER, UPPER_ARM, arm_rot,
                     mirror_side, slot)
 from head import HEAD_PIVOT, HEAD_SCALE, head_scaled, head_xf, neck  # noqa: F401  (re-exported)
 from shapes import Tube
@@ -57,6 +57,11 @@ def torso():
              T(1.3): 0.102, T(1.4): 0.108, T(1.46): 0.1, T(1.5): 0.065}
         n = {0.0: 2.2, T(1.09): 2.2, T(1.3): 2.6, T(1.42): 2.45, 1.0: 2.2}
     cf = {0.0: 0.0, T(1.3): 0.0, T(1.45): -0.012, 1.0: -0.02}
+    if HARPIN:  # light and graceful: a narrower, shallower torso
+        gw, gd = (0.97, 0.98) if FEMALE else (0.93, 0.95)
+        w = {t: v * gw for t, v in w.items()}
+        f = {t: v * gd for t, v in f.items()}
+        k = {t: v * gd for t, v in k.items()}
     body = Tube((0, y0, -0.005), (0, y1, -0.005), w, f, k=k, n=n, cf=cf, cap=0.05)
     if FEMALE:  # bust: two soft volumes blended into the chest
         bust = sdf.ellipsoid((0.048, 1.262, 0.06), (0.054, 0.05, 0.044)).mirror_x()
@@ -97,7 +102,7 @@ def arm_tube():
     return Tube((L0, 0, 0), (L1, 0, 0), w, f, k=k, cl=cl, n=n, cap=0.02)
 
 
-ARM_K = 0.84 if FEMALE else 0.94  # limb thickness relative to the old heroic male
+ARM_K = (0.82 if FEMALE else 0.88) if HARPIN else (0.84 if FEMALE else 0.94)  # limb thickness (old heroic male = 1)
 
 
 WX = UPPER_ARM + FOREARM  # wrist, canonical left arm frame
@@ -272,7 +277,11 @@ def body_sdf():
     core = sdf.smooth_union(torso(), shoulders(), k=0.05).smooth_union(neck(), 0.04)
     arms = arm(1).union(arm(-1, fist=True))
     core = core.smooth_union(arms, 0.035)
-    legs = leg_tube(1).smooth_union(foot(1), 0.03).union(leg_tube(-1).smooth_union(foot(-1), 0.03))
+    if HARPIN:
+        import harpin
+        legs = harpin.legs_sdf()
+    else:
+        legs = leg_tube(1).smooth_union(foot(1), 0.03).union(leg_tube(-1).smooth_union(foot(-1), 0.03))
     core = core.smooth_union(legs, 0.045)
     return core.smooth_union(head_scaled(), 0.014)
 

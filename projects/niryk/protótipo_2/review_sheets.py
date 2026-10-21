@@ -5,6 +5,8 @@
   <body>_hair.png        the four hair styles: 3/4 front, 3/4 back (over the shoulder), side
   <body>_palette.png     three looks from the game's color lists (the tint slots at work)
   <body>_hands.png       sword fist and relaxed hand, at rest, at the hit of Attack1, first person
+  <body>_wings.png       Harpins: the wings in motion (Idle, Run, Attack1 hit, Hit flare, Death end) and
+                         the legs and feet up close
   <body>_<Clip>.png      filmstrips (Walk, Run, Attack1; --all-clips: all ten)
 """
 from __future__ import annotations
@@ -16,7 +18,7 @@ import numpy as np
 import anim as A
 import body as B
 import hair as HR
-from common import BODY, FEMALE, REVIEW, review_lights, tint_for_review, untint, xf_points
+from common import BODY, FEMALE, HARPIN, REVIEW, review_lights, tint_for_review, untint, xf_points
 
 import pyram3d as p3
 
@@ -71,6 +73,14 @@ PALETTES = [
     ("coque", {"Skin": "#a96f47", "Hair": "#1f1714", "Eye": "#6a4a2a", "Cloth_A": "#7a2f3a"}),
     ("longo", {"Skin": "#d9a57c", "Hair": "#a8432a", "Eye": "#7a4ab0", "Cloth_A": "#5c8a44"}),
 ]
+if HARPIN:  # Harpin hair and plumes: white, black, gray, green, blue, red, yellow only
+    PALETTES = [
+        ("crista", {"Skin": "#f3d2b8", "Hair": "#c43a32", "Plume": "#c43a32", "Eye": "#3f6fa8", "Cloth_A": "#34507a"}),
+        ("plumado", {"Skin": "#a96f47", "Hair": "#3f72c4", "Plume": "#ecebe6", "Eye": "#6a4a2a",
+                     "Cloth_A": "#7a2f3a"}),
+        ("espetado", {"Skin": "#d9a57c", "Hair": "#e8c040", "Plume": "#4f9a52", "Eye": "#7a4ab0",
+                      "Cloth_A": "#6b6870"}),
+    ]
 
 
 def review_palette(scene, nodes, out):
@@ -97,6 +107,23 @@ def review_palette(scene, nodes, out):
     write_png(out / f"{BODY}_palette.png", grid(imgs, 3))
 
 
+def review_wings(scene, sk, out):
+    """Harpins: the wings and tail in motion from behind (3/4 back), and the legs up close."""
+    from pyram3d.image import grid, write_png
+    shots = [("Idle", 0.0), ("Run", 0.13), ("Attack1", A.HIT_TIME["Attack1"]), ("Hit", 0.1),
+             ("Death", A.DUR["Death"])]
+    imgs = []
+    for clip, t in shots:
+        far = clip == "Death"
+        imgs.append(p3.render(scene, None, 440, 520, view=(0.6, 0.35, -1.0) if not far else (0.7, 0.9, -0.6),
+                              style="toon", target=(0, 0.95 if not far else 0.3, 0), distance=4.4 if not far else 4.0,
+                              yfov=30, time=t, animation=clip))
+    for v in [(0.5, 0.15, 1.0), (1.0, 0.1, 0.0), (-0.4, 0.3, -1.0)]:
+        imgs.append(p3.render(scene, None, 440, 520, view=v, style="toon", target=(0.0, 0.35, 0.0), distance=1.7,
+                              yfov=30, time=0.0, animation="Idle"))
+    write_png(out / f"{BODY}_wings.png", grid(imgs, 4))
+
+
 def review(scene, sk, nodes, sword, clips=None):
     from pyram3d.image import grid, write_png
     out = REVIEW / "characters"
@@ -107,7 +134,7 @@ def review(scene, sk, nodes, sword, clips=None):
     for n in ("Head_Skin", "Head_Eyes", "Head_Brows", "Head_Mouth"):
         nodes[n].extras["outline_group"] = "face"  # the game draws no ink between the face decals
     tint_for_review(scene)
-    default = "longo" if FEMALE else "curto"
+    default = ("plumado" if FEMALE else "espetado") if HARPIN else ("longo" if FEMALE else "curto")
     show_hair(nodes, default)
     p3.render_views(scene, out / f"{BODY}_turnaround.png", views=("front", "three_quarter", "right", "back"),
                     size=560, cols=4, style="toon", time=0.0, animation="Idle")
@@ -123,17 +150,25 @@ def review(scene, sk, nodes, sword, clips=None):
     write_png(out / f"{BODY}_face.png", grid(imgs, 4))
     # the four hair styles: 3/4 front, 3/4 back (over-the-shoulder view), side
     imgs = []
+    for n in ("Wings", "Tail"):  # they hide the head from the side and the back
+        if n in nodes:
+            nodes[n].visible = False
     for style in HR.STYLES:
         show_hair(nodes, style)
         for v in [(0.6, 0.15, 1), (0.55, 0.35, -1), (-1, 0.1, -0.1)]:
-            far = style in ("rabo", "longo") and v[2] < 0.5
+            far = style in ("rabo", "longo", "plumado") and v[2] < 0.5
             imgs.append(p3.render(scene, None, 400, 400, view=v, style="toon",
                                   target=(hc[0], hc[1] - (0.12 if far else 0.0), hc[2]), distance=1.15 if far else 0.85,
                                   yfov=30, time=0.0, animation="Idle", shadows=False))
-    write_png(out / f"{BODY}_hair.png", grid(imgs, 6))
+    write_png(out / f"{BODY}_hair.png", grid(imgs, 6 if len(HR.STYLES) == 4 else 3))
+    for n in ("Wings", "Tail"):
+        if n in nodes:
+            nodes[n].visible = True
     show_hair(nodes, default)
     review_palette(scene, nodes, out)
     review_hands(scene, sk, out)
+    if HARPIN:
+        review_wings(scene, sk, out)
     if clips is None:
         clips = () if "--no-clips" in sys.argv else (
             ("Walk", "StrafeLeft", "Run", "Attack1", "Attack2", "WalkBack", "StrafeRight", "Idle", "Hit", "Death")

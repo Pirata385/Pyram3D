@@ -10,7 +10,8 @@ from __future__ import annotations
 import numpy as np
 
 import body as B
-from common import FOREARM, HIP, KNEE_Y, ANKLE_Y, SHOULDER, UPPER_ARM, arm_dir, mirror_side
+from common import (ANKLE_Y, FOREARM, H_BALL, H_HOCK, H_KNEE, H_TOE, HARPIN, HIP, KNEE_Y, SHOULDER, TAIL_BONES,
+                    TAIL_POINTS, UPPER_ARM, arm_dir, mirror_side)
 
 
 def ss(e0, e1, x):
@@ -71,6 +72,13 @@ def weight_matrix(P: np.ndarray, names: list[str], head_sdf=None, skirt: bool = 
             ml = down * sidew
         else:
             ml = ss(0.985, 0.875, y) * ss(-0.012, 0.022, x * side) * (1 - arm_any)
+        if HARPIN:
+            if skirt:
+                chain = {"UpperLeg": np.ones(N)}
+            else:
+                chain = harpin_leg_chain(P, side)
+            leg_parts[pre] = (ml, chain)
+            continue
         knee = ss(KNEE_Y + 0.045, KNEE_Y - 0.04, y)
         ankle = ss(ANKLE_Y + 0.035, ANKLE_Y - 0.01, y) if not skirt else np.zeros(N)
         toes = ss(0.09, 0.135, z) * ss(0.075, 0.045, y) if not skirt else np.zeros(N)
@@ -94,6 +102,60 @@ def weight_matrix(P: np.ndarray, names: list[str], head_sdf=None, skirt: bool = 
     W = np.where(s > 1e-9, W / np.maximum(s, 1e-9), 0)
     W[s[:, 0] <= 1e-9, idx["Hips"]] = 1.0
     return W
+
+
+def _polyline_param(P, knots):
+    """Per point: i + t of the nearest point on the polyline through knots (segment i, t in
+    [0, 1]) (the first and last segments extend a little past their ends)."""
+    best_d = np.full(len(P), np.inf)
+    best_s = np.zeros(len(P))
+    n = len(knots) - 1
+    for i in range(n):
+        a, b = knots[i], knots[i + 1]
+        ab = b - a
+        t = (P - a) @ ab / (ab @ ab)
+        t = np.clip(t, -0.5 if i == 0 else 0.0, 1.5 if i == n - 1 else 1.0)
+        d = np.linalg.norm(P - (a + t[:, None] * ab), axis=1)
+        better = d < best_d
+        best_d = np.where(better, d, best_d)
+        best_s = np.where(better, i + t, best_s)
+    return best_s
+
+
+def harpin_leg_chain(P, side):
+    """Digitigrade leg: hip -> knee -> hock -> ball -> toe tip; smooth blends at the knee and the
+    hock (a few centimeters), a short one at the ball (the toes bend there; the hallux, behind
+    the ball, stays on the tarsus)."""
+    sx = np.array([side, 1.0, 1.0])
+    knots = [np.array([HIP[0], 1.0, 0.0]) * sx, H_KNEE * sx, H_HOCK * sx, H_BALL * sx, H_TOE * sx]
+    s = _polyline_param(P, knots)
+    knee = ss(0.86, 1.12, s)
+    hock = ss(1.9, 2.1, s)
+    ball = ss(2.97, 3.08, s) * ss(-0.005, 0.012, (P[:, 2] - H_BALL[2]))
+    return {"UpperLeg": 1 - knee, "LowerLeg": knee - hock, "Foot": hock * (1 - ball), "Toes": hock * ball}
+
+
+def tail_weights(P, names):
+    """Tail1..6 along the tail polyline (linear blends between the bones' middles), Hips at the
+    root."""
+    s = _polyline_param(P, list(TAIL_POINTS))
+    s = np.clip(s, 0, len(TAIL_BONES))
+    W = np.zeros((len(P), len(names)))
+    idx = {n: i for i, n in enumerate(names)}
+    c = np.arange(len(TAIL_BONES)) + 0.5
+    hat = np.clip(1 - np.abs(s[:, None] - c[None]), 0, 1)
+    hat[:, 0] = np.where(s < 0.5, 1.0, hat[:, 0])
+    hat[:, -1] = np.where(s > c[-1], 1.0, hat[:, -1])
+    hips = 1 - ss(0.0, 0.45, s)
+    for k, b in enumerate(TAIL_BONES):
+        W[:, idx[b]] = hat[:, k] * (1 - hips)
+    W[:, idx["Hips"]] += hips
+    return W
+
+
+def skin_with(mesh, W):
+    mesh.joints, mesh.weights = top4(W)
+    return mesh
 
 
 def top4(W):

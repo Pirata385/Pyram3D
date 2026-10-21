@@ -24,7 +24,7 @@ import math
 import numpy as np
 
 import body as B
-from common import FEMALE, FOREARM, SHOULDER, UPPER_ARM, arm_dir, arm_point, mirror_side, slot
+from common import FEMALE, FOREARM, HARPIN, SHOULDER, UPPER_ARM, arm_dir, arm_point, mirror_side, slot
 from shapes import Offset, Tube
 
 from pyram3d import math3d as m3
@@ -91,9 +91,45 @@ def _skirt(extra=0.0, hem=None):
         w = {T(1.06): 0.15, T(1.0): 0.184, T(0.96): 0.202, T(0.9): 0.214, T(0.84): 0.22, T(y1): 0.228}
         f = {T(1.06): 0.108, T(0.97): 0.12, T(y1): 0.138}
         k = {T(1.06): 0.106, T(0.97): 0.138, T(y1): 0.158}
+    if HARPIN:  # room in front for the forward knees of the digitigrade legs
+        f = {t: v + 0.028 * t ** 1.5 for t, v in f.items()}
     if extra:
         w, f, k = ({t: v + extra for t, v in d.items()} for d in (w, f, k))
     return Tube((0, y0, -0.006), (0, y1, -0.012), w, f, k=k, n=2.3, cap=0.012)
+
+
+def hem_y(p):
+    """Height of the tunic hem around the body: level for the humans; Harpins: shorter at the back
+    (the tail and the folded wings) with a notch over the tail."""
+    p = np.atleast_2d(p)
+    if not HARPIN:
+        return np.full(len(p), TUNIC_HEM)
+    x, z = p[:, 0], p[:, 2]
+    back = _ss(0.02, -0.12, z)
+    y = TUNIC_HEM + 0.06 * back
+    notch = 0.975 - 2.2 * np.abs(x)  # an inverted V over the tail
+    return np.maximum(y, np.where(z < -0.02, notch, -1.0))
+
+
+def _hem_cut(shape, offset=0.0, k=0.006):
+    """Keep the part of `shape` above the hem curve (+ offset)."""
+    lo = np.array([-0.5, 0.3, -0.5])
+    hi = np.array([0.5, 1.3, 0.5])
+    cut = sdf.custom(lambda p: (hem_y(p) + offset) - np.atleast_2d(p)[:, 1], lo, hi)
+    return shape.smooth_intersect(cut, k)
+
+
+def wing_slits():
+    """Harpins: where the wing arms come out of the back (subtracted from tunic and capelet)."""
+    import harpin
+    from common import WING_ELBOW, WING_ROOT
+    out = []
+    for s in (1, -1):
+        sx = np.array([s, 1.0, 1.0])
+        a = (WING_ROOT - (WING_ELBOW - WING_ROOT) * 0.6) * sx
+        b = (WING_ROOT + (WING_ELBOW - WING_ROOT) * 0.55) * sx
+        out.append(sdf.capsule(a, b, 0.046 * harpin.SLIM))
+    return sdf.union(*out)
 
 
 def _slit():
@@ -115,6 +151,8 @@ def tunic():
     shape = shape.smooth_subtract(neck, 0.006)
     if not FEMALE:
         shape = shape.smooth_subtract(_slit(), 0.006)
+    if HARPIN:
+        shape = _hem_cut(shape).smooth_subtract(wing_slits(), 0.006)
     body = shape.paint(color=(1, 1, 1), material=slot("Cloth_A"))
     return body.union(tunic_trim(shape))
 
@@ -123,7 +161,11 @@ def tunic_trim(tunic_shape):
     """Cloth_B bands, a few millimeters proud of the tunic: along the hem (and the slit and down
     the chest for the male)."""
     grow = Offset(tunic_shape, 0.0022, t_max=0.003)
-    band = _slab(TUNIC_HEM - 0.01, TUNIC_HEM + 0.028)
+    if HARPIN:  # the band follows the hem curve
+        band = sdf.custom(lambda p: np.atleast_2d(p)[:, 1] - (hem_y(p) + 0.028), np.array([-0.5, 0.3, -0.5]),
+                          np.array([0.5, 1.3, 0.5]))
+    else:
+        band = _slab(TUNIC_HEM - 0.01, TUNIC_HEM + 0.028)
     parts = [grow.intersect(band)]
     if not FEMALE:
         slit_band = sdf.box((0, (SLIT_TOP + TUNIC_HEM) / 2, 0.2), (0.03, (SLIT_TOP - TUNIC_HEM) / 2 + 0.025, 0.12))
@@ -138,6 +180,8 @@ def underskirt():
     """Female: a Cloth_B layer whose hem shows below the dress."""
     sk = _skirt(extra=-0.004, hem=UNDER_HEM)
     sk = _cut(sk, (0, TUNIC_HEM + 0.05, 0), (0, 1, 0), 0.01)
+    if HARPIN:
+        sk = _hem_cut(sk, offset=-0.03)
     return sk.paint(color=(1, 1, 1), material=slot("Cloth_B"))
 
 
@@ -175,6 +219,8 @@ def collar():
                                     .intersect(sdf.capsule(arm_point(0.05, s), arm_point(0.6, s), 0.12)), 0.01)
     neck_hole = sdf.capsule((0, 1.4, -0.03), (0, 1.62, -0.02), 0.068 if FEMALE else 0.074)
     cape = cape.smooth_subtract(neck_hole, 0.012)
+    if HARPIN:
+        cape = cape.smooth_subtract(wing_slits(), 0.008)
     cape_a = cape.paint(color=(1, 1, 1), material=slot("Cloth_A"))
     # trim along the lower edge
     grow = Offset(cape, 0.002, t_max=0.003)
@@ -184,12 +230,15 @@ def collar():
         return p[:, 1] - (_cape_edge(p) + 0.018)  # < 0 within 1.8 cm of the edge
     trim = grow.intersect(sdf.custom(band, np.array([-0.4, 1.2, -0.3]), np.array([0.4, 1.6, 0.3])))
     trim = trim.paint(color=(1, 1, 1), material=slot("Cloth_B"))
-    # stand collar around the neck, higher at the back than under the chin
+    # stand collar around the neck, higher at the back than under the chin: the skin of the neck
+    # (and the slope of the shoulders) grown by 7.5 mm, cut to a band. It follows the skin exactly
+    # (a tube of its own sat partly inside the neck base: brown smears and skin poking through);
+    # its inside and the skin under it are dropped at build time, its foot hides under the capelet.
     g = 0.86 if FEMALE else 1.0
-    stand = Tube((0, 1.44, -0.028), (0, 1.6, -0.026), {0: 0.07 * g, 1: 0.058 * g}, {0: 0.068 * g, 1: 0.056 * g},
-                 k={0: 0.074 * g, 1: 0.062 * g}, cap=0.006)
+    skin = sdf.smooth_union(B.torso(), B.shoulders(), k=0.05).smooth_union(B.neck(), 0.04)
+    stand = Offset(skin, 0.0075, t_max=0.01).intersect(sdf.capsule((0, 1.3, -0.028), (0, 1.75, -0.022), 0.09 * g))
+    stand = _cut(stand, (0, 1.43, 0), (0, -1, 0), 0.004)
     stand = _cut(stand, (0, 1.548 if FEMALE else 1.553, 0.0), (0, 1.0, 0.62), 0.006)  # back higher
-    stand = stand.smooth_subtract(sdf.capsule((0, 1.38, -0.028), (0, 1.66, -0.022), 0.05 * g), 0.004)
     stand = stand.paint(color=(1, 1, 1), material=slot("Cloth_B"))
     parts = [cape_a, trim, stand]
     if FEMALE:
@@ -335,3 +384,5 @@ GARMENTS = [  # (name, builder); mesh budgets are in build_characters.BUDGET
     ("Belt", belt),
     ("Bracers", bracers),
 ] + ([("Underskirt", underskirt)] if FEMALE else [])
+if HARPIN:  # plumed legs and taloned feet: no trousers, no boots
+    GARMENTS = [g for g in GARMENTS if g[0] not in ("Trousers", "Boots")]

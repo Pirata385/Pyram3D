@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from common import FEMALE, slot
+from common import FEMALE, HARPIN, slot
 from shapes import Tube
 
 from pyram3d import math3d as m3
@@ -122,6 +122,12 @@ def head():
     base = base.smooth_subtract(eye_dish(1).union(eye_dish(-1)), 0.012)
     c, r = P["ear"]
     ear = sdf.ellipsoid(c, r)
+    if HARPIN:  # pointed ear: a flat leaf sweeping back and up from the ear
+        c = np.asarray(c, float)
+        tip = c + np.array([0.016, 0.034, -0.03])
+        leaf = Tube(c + np.array([-0.002, -0.006, 0.004]), tip, {0: r[1] * 0.75, 0.45: r[1] * 0.62, 1: 0.0012},
+                    {0: r[0] * 0.55, 1: 0.0012}, front=(1.0, 0.0, 0.35), cap=0.001)
+        ear = ear.smooth_union(leaf, 0.006)
     ear = ear.smooth_subtract(sdf.ellipsoid((c[0] + r[0] * 0.95, c[1] - 0.002, c[2] + 0.003),
                                             (r[0] * 0.6, r[1] * 0.62, r[2] * 0.6)), 0.004)
     base = base.smooth_union(ear.mirror_x(), 0.008)

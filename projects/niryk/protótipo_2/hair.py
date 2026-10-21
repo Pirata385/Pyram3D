@@ -18,13 +18,14 @@ import math
 import numpy as np
 
 import head as H
-from common import FEMALE, slot
+from common import FEMALE, HARPIN, slot
 from shapes import Offset, Strand
 
+import pyram3d as p3
 from pyram3d import math3d as m3
 from pyram3d import sdf
 
-STYLES = ("curto", "rabo", "longo", "coque")
+STYLES = ("espetado", "crista", "plumado") if HARPIN else ("curto", "rabo", "longo", "coque")
 CRAN_C, CRAN_R = H.CRAN_C, H.CRAN_R
 
 
@@ -295,7 +296,112 @@ def style_coque():
     return _hair(hair).union(tie)
 
 
-BUILDERS = {"curto": style_curto, "rabo": style_rabo, "longo": style_longo, "coque": style_coque}
+# ----------------------------------------------------------------------------- Harpin styles
+
+def spikes(azs, el0, el1, length, lift, w=0.022, f=0.009, bend=0.0):
+    """Spiky locks standing off the head: rooted at elevation el0, going toward el1 while the
+    tip lifts `lift` m off the cap (bend: azimuth drift of the tip, deg)."""
+    L = []
+    for i, az in enumerate(azs):
+        e1 = el1 + 4 * ((i * 7) % 3 - 1)
+        mid_el = el0 + (e1 - el0) * 0.5
+        L.append(lock([P(az, el0), P(az + bend * 0.4, mid_el, lift * 0.35), (az + bend, e1, cap_t(az, e1) + lift)],
+                      w, f, k=f * 0.75, tip=0.03, peak=0.3, thin=0.5))
+    return L
+
+
+def style_espetado():
+    """Spiky (ref. 06): pointed bangs, locks standing up and back from the crown, short spiky
+    sides and nape."""
+    L = bangs() + sides("short")
+    L += spikes((-150, -120, -90, -60, -30, 0, 30, 60, 90, 120, 150, 180), 64, 26, 0.0, 0.05, w=0.026, f=0.01)
+    L += spikes((-165, -135, -105, 105, 135, 165), 40, -6, 0.0, 0.04, w=0.024, f=0.009)
+    L += spikes((-45, -15, 15, 45), 78, 60, 0.0, 0.055, w=0.024, f=0.009, bend=0)
+    L += spikes((-160, 160, 180, -140, 140), 8, -40, 0.0, 0.03, w=0.022, f=0.009)
+    if FEMALE:  # a longer, softer pixie: locks along the jaw
+        L += sides("jaw")
+    return _hair(cap().smooth_union(sdf.smooth_union(*L, k=0.003), 0.006))
+
+
+def style_crista():
+    """Crest: the sides combed flat and close, a crest of long pointed locks standing along the
+    middle from the forehead to the nape (tallest over the crown), like a bird's crest."""
+    L = []
+    crest = [(0, 38, 66, 0.055), (0, 60, 84, 0.075), (180, 90, 68, 0.095), (180, 72, 40, 0.1), (180, 52, 14, 0.085),
+             (180, 30, -12, 0.065), (180, 8, -36, 0.045)]
+    for i, (az, el0, el1, lift) in enumerate(crest):
+        for dx in ((-9, 9) if i else (0,)):
+            a0 = az + dx * (1 if az == 180 else 0.5)
+            L.append(lock([P(a0, el0), P(a0, (el0 + el1) / 2 + (8 if az == 0 else 0), lift * 0.45),
+                           (a0 + dx * 0.3, el1, cap_t(a0, el1) + lift)], 0.026, 0.011, k=0.009, tip=0.03, peak=0.3,
+                          thin=0.45))
+    # flat side locks combed back (the cap shows between them)
+    for sgn in (1, -1):
+        for az, el in ((60, 40), (90, 30), (120, 20), (150, 10)):
+            L.append(lock([P(sgn * az * 0.7, el + 18), P(sgn * az, el, 0.002), (sgn * (az + 25), el - 22, cap_t(az, el) + 0.004)],
+                          0.026, 0.006, k=0.005, tip=0.04))
+    # two short bangs and (female) long locks framing the face
+    for az in (-30, -10, 12, 32):
+        L.append(lock([P(az * 0.5, 66), P(az, 44, 0.008), (az * 1.15, 16, 0.012)], 0.026, 0.007, k=0.005, tip=0.03))
+    if FEMALE:
+        L += sides("long")
+    return _hair(cap(8).smooth_union(sdf.smooth_union(*L, k=0.003), 0.006))
+
+
+def style_plumado():
+    """Long and plumed: bangs, long framing locks and a narrow curtain down the back between the
+    wing roots, the ends pointed like plumes (feathers are mixed in, see harpin_hair_feathers)."""
+    L = bangs() + sides("long") + top(back_el=-10)
+    end_y = 1.17 if FEMALE else 1.27
+    azs = (150, 165, 180, -165, -150)
+    for i, az in enumerate(azs):
+        a = math.radians(az)
+        x_end = 0.05 * math.sin(a) * 1.4
+        mid = scalp(az, -38, 0.02)
+        b = to_head(np.array([x_end * 0.9, 1.48, -0.15]))
+        c = to_head(np.array([x_end, 1.38, -0.17]))
+        d = to_head(np.array([x_end * 1.1, end_y + 0.03 * abs(i - 2) - 0.012 * (i % 2), -0.18]))
+        L.append(lock([P(az, 40), P(az, 6, 0.004), mid, b, c, d], 0.03, 0.011, k=0.008, peak=0.4, tip=0.03, root=0.85,
+                      thin=0.5))
+    return _hair(cap(6 if FEMALE else 2).smooth_union(sdf.smooth_union(*L, k=0.003), 0.006))
+
+
+def harpin_hair_feathers(style):
+    """Feathers mixed into a Harpin hair style (Hair slot, in design space): tucked behind the ears
+    and, for the crest and the long style, standing in the crest or hanging among the locks."""
+    import harpin as HP
+    parts = []
+
+    def put(base, d, ln, w, out_hint, lum=1.0, tilt=8.0):
+        d = m3.normalize(np.asarray(d, float))
+        out = m3.normalize(np.asarray(out_hint, float) - d * np.dot(out_hint, d))
+        to3d = HP.plane_map(base, d, np.cross(out, d), out)
+        parts.append(HP.feather((0.0, 0.0), (ln, 0.0), np.array([0.0, 1.0]), w, to3d, round_tip=0.2, asym=0.1,
+                                curve=0.04, tilt=tilt, thick=0.0024, n=7, lum=lum, tip_dark=0.15))
+
+    for sx in (1, -1):
+        m = np.array([sx, 1.0, 1.0])
+        if style == "espetado":
+            base = H.head_xf(scalp(sx * 128, 2, 0.0))
+            put(base, np.array([0.35, -0.25, -0.9]) * m, 0.12, 0.028, np.array([1, 0, 0.2]) * m)
+            put(base + np.array([0, 0.012, 0]), np.array([0.3, 0.05, -0.95]) * m, 0.1, 0.026, np.array([1, 0, 0.2]) * m, 0.92)
+        elif style == "crista":
+            base = H.head_xf(scalp(sx * 172, 62, 0.0))
+            put(base, np.array([0.15, 0.75, -0.65]) * m, 0.15, 0.03, np.array([1, 0, 0]) * m)
+            base = H.head_xf(scalp(sx * 176, 30, 0.0))
+            put(base, np.array([0.12, 0.45, -0.88]) * m, 0.13, 0.028, np.array([1, 0, 0]) * m, 0.92)
+        else:
+            base = H.head_xf(scalp(sx * 112, -20, 0.012))
+            put(base, np.array([0.12, -0.97, -0.2]) * m, 0.17 if FEMALE else 0.14, 0.03, np.array([1, 0, 0.3]) * m)
+            base = H.head_xf(scalp(sx * 140, -30, 0.016))
+            put(base, np.array([0.1, -0.95, -0.3]) * m, 0.15, 0.028, np.array([1, 0, -0.2]) * m, 0.92)
+    out = p3.Mesh.join(parts, name="HairFeathers")
+    out.set_material(slot("Hair"))
+    return out
+
+
+BUILDERS = {"curto": style_curto, "rabo": style_rabo, "longo": style_longo, "coque": style_coque,
+            "espetado": style_espetado, "crista": style_crista, "plumado": style_plumado}
 
 
 def hair_sizing(style: str):
@@ -404,7 +510,7 @@ def paint_hair(m, style: str):
     lum *= 1 - 0.16 * under
     inner = _ss(0.1, -0.3, np.einsum("ij,ij->i", N, dn)) * near
     lum *= 1 - 0.18 * inner
-    lum *= 1 - 0.38 * _ss(0.08, 0.35, cavity(m, smooth=4))  # grooves between locks
+    lum *= 1 - 0.22 * _ss(0.12, 0.4, cavity(m, smooth=6))  # grooves between locks (soft: no dark facets)
     if m.colors is None:
         m.colors = np.ones((m.num_vertices, 4))
     hair_mat = [i for i, mt in enumerate(m.materials or []) if mt is slot("Hair")]
@@ -425,7 +531,7 @@ def hair_normals(m):
     ne /= np.linalg.norm(ne, axis=1, keepdims=True)
     dist = np.linalg.norm(m.vertices - c, axis=1)
     top = _ss(c[1] - 0.04, c[1] + 0.06, m.vertices[:, 1])
-    w = ((0.5 + 0.3 * top) * _ss(0.17, 0.13, dist))[:, None]
+    w = ((0.72 + 0.2 * top) * _ss(0.17, 0.13, dist))[:, None]  # strong: clean toon bands, no facets
     n = m.normals * (1 - w) + ne * w
     m.normals = n / np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
     return m
