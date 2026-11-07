@@ -147,8 +147,11 @@ def _collect(scene, time: float | None, animation=None):
 # rasterizer
 # ---------------------------------------------------------------------------
 
-def _rasterize(clip: np.ndarray, w: int, h: int, cull_backfaces: bool = False, chunk: int = 4_000_000):
-    """clip: (T,3,4) clip-space vertices. Returns (tri_id, b0, b1, b2, depth) per pixel (-1 = empty)."""
+def _rasterize(clip: np.ndarray, w: int, h: int, cull_backfaces: bool = False, chunk: int = 4_000_000,
+               discard=None):
+    """clip: (T,3,4) clip-space vertices. Returns (tri_id, b0, b1, b2, depth) per pixel (-1 = empty).
+    discard: optional fragment test fn(tri (n,), perspective-correct barycentrics (n, 3)) -> (n,)
+    bool, True = drop the fragment before the depth test (alpha-tested materials)."""
     T = len(clip)
     tri_id = np.full(h * w, -1, dtype=np.int64)
     depth = np.full(h * w, np.inf)
@@ -206,6 +209,11 @@ def _rasterize(clip: np.ndarray, w: int, h: int, cull_backfaces: bool = False, c
         zz = w0 * z[tri, 0] + w1 * z[tri, 1] + w2 * z[tri, 2]
         ok = (zz >= -1) & (zz <= 1)
         tri, px, py, w0, w1, w2, zz = tri[ok], px[ok], py[ok], w0[ok], w1[ok], w2[ok], zz[ok]
+        if discard is not None and len(tri):
+            iw = 1.0 / wc[tri]
+            pb = np.stack([w0 * iw[:, 0], w1 * iw[:, 1], w2 * iw[:, 2]], axis=1)
+            keep = ~np.asarray(discard(tri, pb / pb.sum(axis=1, keepdims=True)), bool)
+            tri, px, py, w0, w1, w2, zz = tri[keep], px[keep], py[keep], w0[keep], w1[keep], w2[keep], zz[keep]
         pix = py * w + px
         # keep nearest per pixel within chunk
         o = np.lexsort((zz, pix))
@@ -342,12 +350,33 @@ def render(scene, path=None, width: int = 800, height: int = 600, view="three_qu
             mt = mats[k]
             if mt is not None and mt.resolved_alpha_mode == "BLEND":
                 blend[M == k] = True
+    # alpha-tested (MASK) triangles: fragments under the cutoff are dropped before the depth test,
+    # so what is behind them shows through (decals, leaves)
+    masked = np.zeros(len(P), dtype=bool)
+    if style in ("realistic", "toon") and len(P):
+        for k in np.unique(M):
+            mt = mats[k]
+            if mt is not None and mt.resolved_alpha_mode == "MASK":
+                masked[M == k] = True
     VP = proj @ view_m
     clip = np.concatenate([P, np.ones(P.shape[:2] + (1,))], axis=2) @ VP.T
 
     def raster(sel):
         ids = np.flatnonzero(sel)
-        tid, bc, dp = _rasterize(clip[ids], W, H)
+        disc = None
+        if masked[ids].any():
+            def disc(t, b):
+                g = ids[t]
+                m = masked[g]
+                drop = np.zeros(len(t), dtype=bool)
+                if m.any():
+                    gi, bb = g[m], b[m]
+                    uv = np.einsum("nk,nkj->nj", bb, UV[gi])
+                    vc = np.einsum("nk,nkj->nj", bb, C[gi])
+                    a = _material_inputs(mats, M[gi], uv, vc, style)[5]
+                    drop[m] = a < 0.5
+                return drop
+        tid, bc, dp = _rasterize(clip[ids], W, H, discard=disc)
         tid = np.where(tid >= 0, ids[np.maximum(tid, 0)], -1)
         return tid, bc, dp
 

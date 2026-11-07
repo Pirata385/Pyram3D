@@ -44,10 +44,12 @@ REVIEW = Path(_OUT) / "review" if _OUT else HERE / "review"
 SLOT_DEFAULTS = {  # GLB base colors: white for the tinted slots (the client multiplies its tint)
     "Skin": "#ffffff",
     "Hair": "#ffffff",
-    "Eye": "#ffffff",
-    "EyeWhite": "#f7f4ef",  # not tinted
+    "Eye": "#ffffff",  # face decals: the painted texture carries the detail (face.py, face_paint.py)
+    "EyeWhite": "#ffffff",  # not tinted
     "EyeShine": "#ffffff",  # not tinted, emissive: the eye highlights stay white in any light
-    "Dark": "#2a1f26",  # not tinted (pupils, lash lines, mouth line)
+    "Lash": "#ffffff",  # not tinted (dark lash line, crease, lower lash)
+    "Brow": "#ffffff",  # tinted by the hair color (gray texture)
+    "Mouth": "#ffffff",  # not tinted
     "Cloth_A": "#ffffff",
     "Cloth_B": "#ffffff",
     "Leather": "#ffffff",
@@ -61,6 +63,7 @@ TINTS = {
     "Skin": "#e8b994",
     "Hair": "#ecebe6" if HARPIN else "#5b3a26",  # Harpins: white hair, black plumes, ochre tunic
     "Eye": "#3f8a5c",
+    "Brow": "#ecebe6" if HARPIN else "#5b3a26",  # = Hair
     "Cloth_A": "#b08a3a" if HARPIN else ("#7a2f3a" if FEMALE else "#7a5236"),
     "Cloth_B": "#5e4c40",
     "Leather": "#7a4a2c",

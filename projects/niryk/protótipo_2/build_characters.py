@@ -11,11 +11,14 @@ meshes coarser (quick iteration); exports should use the default (fine) settings
 
 GLB contents (node names are what the client looks for):
   Rig            armature (Unity Humanoid bone names) + Socket_Weapon_R / Socket_Back / Socket_Head
-  Body           skin below the neck (hands)                              [Skin]
-  Head_Skin      head and neck skin (face normals bent toward an ellipsoid) [Skin]
-  Head_Eyes      eye whites, irises, pupils, highlights, lash lines        [EyeWhite, Eye, Dark, EyeShine]
-  Head_Brows     brows                                                     [Hair]
-  Head_Mouth     mouth line                                                [Dark]
+  Body           skin below the neck (hands)                              [Skin, no textures]
+  Head_Skin      head and neck skin, UVs; Skin has the face textures        [Skin: baseColor + face shadow map]
+  Head_Eyes      eye whites (painted decal, clipped)                      [EyeWhite]
+  Head_Iris      irises and pupils (painted decal, clipped)               [Eye]
+  Head_EyeShine  eye highlights (decal, alpha mask)                       [EyeShine]
+  Head_Lashes    lash lines, lashes, eyelid crease, lower lash (mask)     [Lash]
+  Head_Brows     brows (decal, alpha mask)                                [Brow]
+  Head_Mouth     mouth line (decal, alpha mask)                           [Mouth]
   Hair_curto / Hair_rabo / Hair_longo / Hair_coque   (the client shows one) [Hair (+ Leather tie)]
   Outfit         tunic, collar, trousers, boots, belt + pouch, bracers     [Cloth_A, Cloth_B, Leather, Metal]
   clips          Idle Walk Run WalkBack StrafeLeft StrafeRight Attack1 Attack2 Hit Death
@@ -72,9 +75,9 @@ import anim as A  # noqa: E402
 import body as B  # noqa: E402
 import clothes as C  # noqa: E402
 import face as FC  # noqa: E402
+import head as H  # noqa: E402
 import hair as HR  # noqa: E402
 import harpin as HP  # noqa: E402
-import head as H  # noqa: E402
 import rig as RG  # noqa: E402
 from common import (BODY, FEMALE, FOREARM, HARPIN, KNEE_Y, SHOULDER, UPPER_ARM, arm_dir, build_skeleton,  # noqa: E402
                     export_glb, mirror_side, slot, write_stats, xf_mesh)
@@ -85,16 +88,15 @@ import pyram3d as p3  # noqa: E402
 FAST = "--fast" in sys.argv
 CELL = 0.0065 if FAST else 0.0052  # body (mostly under the clothes) and garments
 FINE = 0.0036 if FAST else 0.0029  # head and hands: seen up close
-HAIR_CELL = 0.0042 if FAST else 0.0034
+HAIR_CELL = 0.0042 if FAST else 0.0034  # Harpin legs and wing arms
 
 # Regions meshed finely on their own (their open cuts lie under the collar and the bracers).
 HEAD_BOX = (np.array([-0.15, 1.42, -0.17]), np.array([0.15, 1.86, 0.17]))
 HAND_CUT = UPPER_ARM + FOREARM * 0.72  # hands start here along the arm (under the bracer)
 BUDGET = {"Body": 1400, "Head": 5000, "Hand": 1500, "Tunic": 3600, "Collar": 1700, "Trousers": 1000,
           "Boots": 1700, "Belt": 1100, "Bracers": 700, "Underskirt": 600,
-          "Hair_curto": 2600, "Hair_rabo": 3000, "Hair_longo": 3400, "Hair_coque": 2800,
           # Harpins
-          "Legs": 2400, "Tail": 1600, "WingArm": 500, "Hair_espetado": 2400, "Hair_crista": 2200, "Hair_plumado": 2600}
+          "Legs": 2400, "Tail": 1600, "WingArm": 500}
 if HARPIN:
     BUDGET.update({"Body": 1200, "Head": 4400, "Hand": 1100, "Tunic": 2700, "Collar": 1300})
 LEG_CUT = 0.8  # Harpins: the legs below this height are meshed finely on their own (under the skirt)
@@ -159,31 +161,19 @@ def build_outfit(body_shape):
     return out
 
 
-def build_hair(style, head_shape):
-    shape = HR.hair_sdf(style)
-    m = mesh_sdf(shape, HAIR_CELL, BUDGET["Hair_" + style], max_edge=HR.hair_sizing(style), name="Hair_" + style,
-                 colors=True, hidden=covered_by([head_shape], margin=0.003), before_decimate=HR.mark_ring)
-    HR.finish_ring(m)
-    HR.hair_normals(m)
-    HR.paint_hair(m, style)
-    if HARPIN:  # feathers mixed into the locks
-        m.merge(HR.harpin_hair_feathers(style))
-    return m, shape
+def build_hair(style):
+    """A hair style (smooth swept locks, hair.py), in design space; Harpins get feathers mixed in."""
+    m = HR.build_style(style)
+    if HARPIN:
+        f = HR.harpin_hair_feathers(style)
+        f.normals = f.vertex_normals()
+        m.merge(f)
+    return m
 
 
-def under_all(shapes, margin=0.0035):
-    """hidden() test: points inside every one of `shapes` (skin under every hair style)."""
-    def f(P):
-        h = np.ones(len(P), bool)
-        for s in shapes:
-            h &= s.dist(P) < -margin
-        return h
-    return f
-
-
-def build_body(garments, hairs):
+def build_body(garments):
     """Skin: a coarse body plus the head and both hands meshed finely on their own. Skin hidden
-    under the garments (or under every hair style) is dropped."""
+    under the garments (or under the cap of every hair style) is dropped."""
     shape = B.body_sdf()
     gl = [g for _, g in garments.values()]
     hid = covered_by(gl)
@@ -191,8 +181,7 @@ def build_body(garments, hairs):
                             | ((P[:, 1] < LEG_CUT - 0.012) if HARPIN else False))
     body = mesh_sdf(shape, CELL, BUDGET["Body"], max_edge=body_sizing(), name="Body", outside=coarse_out,
                     hidden=hid)
-    under_hair = under_all(hairs)
-    head_hidden = lambda P: covered_by(gl, margin=0.0035)(P) | under_hair(P)  # noqa: E731
+    head_hidden = lambda P: covered_by(gl, margin=0.0035)(P) | HR.covered_by_all_styles(P)  # noqa: E731
     head = mesh_sdf(shape, FINE, BUDGET["Head"], max_edge=head_sizing(), name="Head", bounds=HEAD_BOX,
                     hidden=head_hidden)
     head.normals = H.face_normals(head.vertices, head.normals)
@@ -289,44 +278,32 @@ def paint_garments(outfit):
             _lum(outfit[name])[:, :3] = 1.0
 
 
-def paint_face(body):
-    """A soft shade under the nose tip and (female) a little blush (vertex colors multiply the
-    skin tint)."""
-    V = body.vertices
-    col = body.colors[:, :3]
-    ty, tz = H.P["nose_tip"]
-    c = H.head_xf((0.0, ty - 0.006, tz - 0.004))
-    r = np.linalg.norm((V - c) / np.array([1.3, 0.8, 1.0]), axis=1)
-    k = np.clip(1 - r / 0.008, 0, 1)[:, None] * 0.22
-    col *= 1 - k * (1 - np.array([0.9, 0.72, 0.7]))
-    blush = 0.16 if FEMALE else 0.05
-    for s in (1, -1):
-        c = H.head_xf((s * (H.EYE_X + 0.006), H.EYE_Y - 0.026, H.face_front_z(H.EYE_Y - 0.026) - 0.006))
-        r = np.linalg.norm((V - c) / np.array([1.0, 0.6, 1.0]), axis=1)
-        k = np.clip(1 - r / 0.02, 0, 1)[:, None] ** 1.5 * blush
-        col *= 1 - k * (1 - np.array([1.0, 0.62, 0.62]))
-    body.colors[:, :3] = col
-
-
 # ----------------------------------------------------------------------------- cache
 
 CACHE = Path(__file__).resolve().parent / ".cache"
-SOURCES = ("body.py", "head.py", "clothes.py", "hair.py", "face.py", "shapes.py", "meshing.py", "common.py",
-           "harpin.py", "rig.py")
+HERE_DIR = Path(__file__).resolve().parent
+MESHING = ("in_head_box", "in_hand", "head_sizing", "garment_sizing", "body_sizing", "build_outfit", "build_body",
+           "build_wings", "build_tail")
+# what each cached stage depends on: modeling modules and functions (face, hair and paint changes
+# keep the outfit, wings and tail; the head's shape only reaches the outfit through the neck)
+STAGE_SOURCES = {
+    "outfit": ("body.py", "clothes.py", "shapes.py", "meshing.py", "common.py", "harpin.py"),
+    "body": ("body.py", "head.py", "clothes.py", "shapes.py", "meshing.py", "common.py", "harpin.py", "rig.py"),
+    "extra": ("body.py", "clothes.py", "shapes.py", "meshing.py", "common.py", "harpin.py", "rig.py"),
+}
 
 
-MESHING = ("in_head_box", "in_hand", "head_sizing", "garment_sizing", "body_sizing", "build_outfit", "build_hair",
-           "under_all", "build_body", "build_wings", "build_tail")
-
-
-def _mesh_key():
-    """Hash of everything the meshes depend on: the modeling modules, the meshing functions of
-    this file (not the painting and assembly below: changing those keeps the cache), budgets and
-    cell sizes."""
+def _mesh_key(stage):
+    """Hash of everything a stage's meshes depend on."""
     import inspect
-    h = hashlib.sha1(f"{BODY} {CELL} {FINE} {HAIR_CELL} {TAIL_CELL} {LEG_CUT} {sorted(BUDGET.items())}".encode())
-    for f in SOURCES:
-        h.update((Path(__file__).resolve().parent / f).read_bytes())
+    h = hashlib.sha1(f"{stage} {BODY} {CELL} {FINE} {HAIR_CELL} {TAIL_CELL} {LEG_CUT} {sorted(BUDGET.items())}".encode())
+    for f in STAGE_SOURCES[stage]:
+        h.update((HERE_DIR / f).read_bytes())
+    if stage in ("outfit", "extra"):  # the neck (in head.py) is under the collar
+        h.update((inspect.getsource(H.neck) + repr(H.P["neck"])).encode())
+    if stage == "body":  # skin under the cap of every hair style is dropped
+        h.update((inspect.getsource(HR.hairline) + inspect.getsource(HR.covered_by_all_styles)
+                  + inspect.getsource(HR.cap_t)).encode())
     for fn in MESHING:
         h.update(inspect.getsource(globals()[fn]).encode())
     for f in ("sdf.py", "remesh.py", "mesh.py"):
@@ -334,46 +311,40 @@ def _mesh_key():
     return h.hexdigest()[:16]
 
 
-def build_meshes():
-    """Meshing is the slow part: each stage (outfit, hair, body, Harpin extras) is cached by the
-    hash of what it depends on, saved as soon as it is done (a crash later resumes there).
-    Painting happens after loading (it is cheap and not cached)."""
-    key = _mesh_key()
-    path = CACHE / f"meshes_{BODY}_{key}.pkl"
-    stages = {}
-    if path.exists() and "--no-cache" not in sys.argv:
-        stages = pickle.loads(path.read_bytes())
-        print("meshes from cache", path.name, sorted(stages))
+def _cached(stage, make):
+    """A meshing stage, cached by its key (a crash later resumes there)."""
     CACHE.mkdir(exist_ok=True)
+    path = CACHE / f"{stage}_{BODY}_{_mesh_key(stage)}.pkl"
+    if path.exists() and "--no-cache" not in sys.argv:
+        print("cache:", path.name)
+        return pickle.loads(path.read_bytes())
+    out = make()
+    for old in CACHE.glob(f"{stage}_{BODY}_*.pkl"):
+        old.unlink()
+    path.write_bytes(pickle.dumps(out))
+    return out
 
-    def save():
-        for old in CACHE.glob(f"meshes_{BODY}_*.pkl"):
-            if old != path:
-                old.unlink()
-        path.write_bytes(pickle.dumps(stages))
 
+def build_meshes():
+    """Meshing is the slow part: the outfit, the skin and the Harpin extras are cached stage by
+    stage. Hair (explicit meshes), face decals and painting are cheap and rebuilt every time."""
     body_shape = B.body_sdf()
     garments = {name: make() for name, make in C.GARMENTS}
-    if "outfit" not in stages:
-        stages["outfit"] = {k: v[0] for k, v in build_outfit(body_shape).items()}
-        save()
-    head_shape = B.head_scaled()
-    hair_shapes = [HR.hair_sdf(st) for st in HR.STYLES]
-    if "hairs" not in stages:
-        stages["hairs"] = {st: build_hair(st, head_shape)[0] for st in HR.STYLES}
-        save()
-    if "body" not in stages:
-        stages["body"] = build_body({k: (None, g) for k, g in garments.items()}, hair_shapes)[0]
-        save()
-    if HARPIN and "extra" not in stages:
-        hid = covered_by([body_shape] + list(garments.values()), margin=0.003)
-        stages["extra"] = {"Wings": build_wings(hid), "Tail": build_tail(hid)}
-        save()
-    outfit, hairs, body = stages["outfit"], stages["hairs"], stages["body"]
-    extra = stages.get("extra", {})
+    outfit = _cached("outfit", lambda: {k: v[0] for k, v in build_outfit(body_shape).items()})
+    body = _cached("body", lambda: build_body({k: (None, g) for k, g in garments.items()})[0])
+    extra = {}
+    if HARPIN:
+        def make_extra():
+            hid = covered_by([body_shape] + list(garments.values()), margin=0.003)
+            return {"Wings": build_wings(hid), "Tail": build_tail(hid)}
+        extra = _cached("extra", make_extra)
+    for old in CACHE.glob(f"meshes_{BODY}_*.pkl"):  # the old single-file cache
+        old.unlink()
+    t = time.time()
+    hairs = {st: build_hair(st) for st in HR.STYLES}
+    print(f"  hair: {', '.join(f'{k} {m.num_triangles}' for k, m in hairs.items())} tris ({time.time() - t:.1f}s)")
     paint_garments(outfit)
-    paint_face(body)
-    face = {m.name: m for m in FC.face_meshes()}
+    face = {}
     if HARPIN:
         plumes = HP.temple_feathers()
         plumes.set_material(slot("Plume"))
@@ -436,6 +407,15 @@ def build():
     head_skin = body.separate(np.flatnonzero(fh), name="Head_Skin")
     body.delete_faces(np.flatnonzero(fh))
     body.name = "Body"
+    # the face: Head_Skin UVs and its textured Skin material (Body keeps the plain Skin), the decals
+    t = time.time()
+    FC.apply_head_uv(head_skin)
+    head_skin.set_material(FC.face_materials()["Skin"])
+    decals = FC.face_decals(head_skin)
+    for m in decals.values():
+        RG.skin_mesh(m, sk, rigid_bone="Head")
+    face.update(decals)
+    print(f"  face: textures + decals {time.time() - t:.1f}s", {k: m.num_triangles for k, m in decals.items()})
     outfit_mesh = p3.Mesh.join(list(outfit.values()), name="Outfit")
 
     parts = {"Body": body, "Head_Skin": head_skin, **face}

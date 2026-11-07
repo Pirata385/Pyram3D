@@ -1,7 +1,10 @@
 """Review sheets for the prototype 2 characters (build_characters.py calls review()).
 
   <body>_turnaround.png  front, 3/4, side, back (toon, game lights, default look)
-  <body>_face.png        face close-ups: front, 3/4, profile, low 3/4
+  <body>_face.png        face close-ups (front, 3/4, profile) lit from the left, from the front and from
+                         behind-left, Head_Skin shaded with the face shadow map as the client draws it
+  <body>_face_ref.png    the style references (docs/art/references/rostos) next to the face, in close-up
+                         and at game distance
   <body>_hair.png        the four hair styles: 3/4 front, 3/4 back (over the shoulder), side
   <body>_palette.png     three looks from the game's color lists (the tint slots at work)
   <body>_hands.png       sword fist and relaxed hand, at rest, at the hit of Attack1, first person
@@ -18,9 +21,65 @@ import numpy as np
 import anim as A
 import body as B
 import hair as HR
-from common import BODY, FEMALE, HARPIN, REVIEW, review_lights, tint_for_review, untint, xf_points
+from common import BODY, FEMALE, HARPIN, REVIEW, TINTS, review_lights, tint_for_review, untint, xf_points
 
 import pyram3d as p3
+from pyram3d import math3d as m3
+
+# the client's toon bands on skin (src/client/render/look.ts): warm light, rosy shadow (sRGB)
+LOOK_LIGHT = np.array([1.0, 0.945, 0.84])
+LOOK_SHADOW_WARM = np.array([0.69, 0.525, 0.565])
+FACE_DECALS = ("Head_Eyes", "Head_Iris", "Head_EyeShine", "Head_Lashes", "Head_Brows", "Head_Mouth")
+
+
+def bake_face(nodes, sk, light_world, skin_hex):
+    """Review only: draw Head_Skin as the client's face map shading does for one light direction
+    (an unlit material with the lit texture baked from the face threshold map), and the face decals
+    flat (unlit). Returns a function that restores the materials."""
+    import face_paint as FP
+    rig = A.Rig(sk)
+    pose = A.sample(rig, A.Feet(rig), "Idle", 0.0)
+    q = rig.world_rot(pose, "Head")
+    lh = A.rot(m3.quat_conj(q), np.asarray(light_world, float))
+    hs = nodes["Head_Skin"].mesh
+    skin = hs.materials[0]
+    thr = skin.extras["face_threshold"]
+    base = skin.base_color_texture.image[..., :3].astype(float) / 255
+    k = base.shape[0] // thr.shape[0]
+    thr_up = np.repeat(np.repeat(thr, k, 0), k, 1)
+    tint = m3.as_color(skin_hex)[:3]
+    lit = FP.lit_skin(base * tint, thr_up, lh, LOOK_LIGHT, LOOK_SHADOW_WARM)
+    saved = {"Head_Skin": hs.materials}
+    hs.materials = [p3.Material("SkinLit", "#ffffff", unlit=True, base_color_texture=p3.Texture(lit, wrap="repeat"))]
+    for n in FACE_DECALS:
+        if n in nodes:
+            mesh = nodes[n].mesh
+            saved[n] = mesh.materials
+            mesh.materials = [m.copy(unlit=True) for m in mesh.materials]
+
+    def restore():
+        for n, mats in saved.items():
+            nodes[n].mesh.materials = mats
+    return restore
+
+
+def key_dir(scene):
+    """Toward the review key light (world)."""
+    for n in scene.walk():
+        if n.light is not None and n.name == "Key":
+            return m3.normalize(n.world_matrix()[:3, 2])  # look_at: -Z points at the target
+    return m3.normalize(np.array([2.5, 3.0, 3.0]))
+
+
+def set_key(scene, direction):
+    """Point the review key light along `direction` (toward the light); returns the old matrix."""
+    for n in scene.walk():
+        if n.light is not None and n.name == "Key":
+            old = (n.translation.copy(), n.rotation.copy())
+            n.translation = np.asarray(direction, float) * 5.0
+            n.look_at((0, 0, 0))
+            return n, old
+    return None, None
 
 
 def hand_world(rig, pose, side):
@@ -83,7 +142,7 @@ if HARPIN:  # Harpin hair and plumes: white, black, gray, green, blue, red, yell
     ]
 
 
-def review_palette(scene, nodes, out):
+def review_palette(scene, nodes, sk, out):
     """The tint slots at work: three looks with different hair styles (3/4 front, full body)."""
     from pyram3d.image import grid, write_png
     from common import TINTS
@@ -99,8 +158,13 @@ def review_palette(scene, nodes, out):
         for k, c in tints.items():
             for m in mats.get(k, []):
                 m.base_color = c
+            if k == "Hair":
+                for m in mats.get("Brow", []):
+                    m.base_color = c
+        restore = bake_face(nodes, sk, key_dir(scene), tints["Skin"])
         imgs.append(p3.render(scene, None, 420, 640, view=(0.55, 0.12, 1), style="toon", target=(0, 0.95, 0),
                               distance=3.3, yfov=30, time=0.0, animation="Idle"))
+        restore()
     for k, c in TINTS.items():
         for m in mats.get(k, []):
             m.base_color = c
@@ -124,6 +188,53 @@ def review_wings(scene, sk, out):
     write_png(out / f"{BODY}_wings.png", grid(imgs, 4))
 
 
+def review_face(scene, sk, nodes, hc, out):
+    """Face close-ups lit from the left, the front and behind-left (front, 3/4, profile), and the
+    style references next to the face (close-up and game distance)."""
+    from pyram3d.image import grid, read_image, write_png
+    lights = [(1.0, 0.45, 0.25), (0.0, 0.5, 1.0), (0.85, 0.45, -0.6)]
+    views = [(0.0, 0.03, 1), (0.7, 0.12, 1), (1, 0.02, 0.05)]
+    node, old = set_key(scene, (0, 0.5, 1))
+    imgs = []
+    for L in lights:
+        L = m3.normalize(np.array(L))
+        set_key(scene, L)
+        restore = bake_face(nodes, sk, L, TINTS["Skin"])
+        for v in views:
+            imgs.append(p3.render(scene, None, 440, 440, view=v, style="toon", target=hc, distance=0.55, yfov=30,
+                                  time=0.0, animation="Idle", shadows=False))
+        restore()
+    write_png(out / f"{BODY}_face.png", grid(imgs, 3))
+    # references next to the face
+    L = m3.normalize(np.array([0.8, 0.5, 0.6]))
+    set_key(scene, L)
+    restore = bake_face(nodes, sk, L, TINTS["Skin"])
+    ours = [p3.render(scene, None, 440, 440, view=v, style="toon", target=hc, distance=0.55, yfov=30, time=0.0,
+                      animation="Idle", shadows=False) for v in [(0.0, 0.03, 1), (0.55, 0.1, 1)]]
+    far = p3.render(scene, None, 440, 440, view=(0.35, 0.15, 1), style="toon", target=(hc[0], hc[1] - 0.25, hc[2]),
+                    distance=2.5, yfov=30, time=0.0, animation="Idle", shadows=False)
+    restore()
+    if old is not None:
+        node.translation, node.rotation = old
+    refs = []
+    from pathlib import Path
+    ref_dir = next((p / "docs/art/references/rostos" for p in Path(__file__).resolve().parents
+                    if (p / "docs/art/references/rostos").is_dir()), None)
+    if ref_dir is None:
+        alt = Path(__file__).resolve().parents[3].parent / "Niryk-Tales-of-Rondoria/docs/art/references/rostos"
+        ref_dir = alt if alt.is_dir() else None
+    if ref_dir is not None:
+        crops = {"01_rosto_anime_loira.jpg": (110, 0, 260, 150), "03_rosto_anime_azul.jpg": (325, 40, 465, 180)}
+        for name, (x0, y0, x1, y1) in crops.items():
+            if (ref_dir / name).exists():
+                im = read_image(ref_dir / name)[y0:y1, x0:x1, :3]
+                h, w = im.shape[:2]
+                yi = (np.arange(440) * h / 440).astype(int)
+                xi = (np.arange(440) * w / 440).astype(int)
+                refs.append(im[yi][:, xi])
+    write_png(out / f"{BODY}_face_ref.png", grid(refs + ours + [far], len(refs) + 3))
+
+
 def review(scene, sk, nodes, sword, clips=None):
     from pyram3d.image import grid, write_png
     out = REVIEW / "characters"
@@ -131,9 +242,10 @@ def review(scene, sk, nodes, sword, clips=None):
     review_lights(scene)
     sock = next(c for c in sk.bone("RightHand").children if c.name == "Socket_Weapon_R")
     sock.add(p3.Node("SwordPreview", sword))
-    for n in ("Head_Skin", "Head_Eyes", "Head_Brows", "Head_Mouth"):
+    for n in ("Head_Skin",) + FACE_DECALS:
         nodes[n].extras["outline_group"] = "face"  # the game draws no ink between the face decals
     tint_for_review(scene)
+    restore = bake_face(nodes, sk, key_dir(scene), TINTS["Skin"])
     default = ("plumado" if FEMALE else "espetado") if HARPIN else ("longo" if FEMALE else "curto")
     show_hair(nodes, default)
     p3.render_views(scene, out / f"{BODY}_turnaround.png", views=("front", "three_quarter", "right", "back"),
@@ -142,12 +254,9 @@ def review(scene, sk, nodes, sword, clips=None):
     idle = A.sample(rig, A.Feet(rig), "Idle", 0.0)
     hc = rig.world_head(idle, "Head") + A.rot(rig.world_rot(idle, "Head"), [0, 0.07, 0.02])
     hc = tuple(float(v) for v in hc)
-    # face close-up: front, 3/4, profile, low 3/4 (no self-shadows: the game's shadow map, 1 cm
-    # texels with a 4.5 cm normal bias, does not resolve the nose or the eye dishes)
-    views = [(0.0, 0.03, 1), (0.7, 0.12, 1), (1, 0.02, 0.05), (-0.55, -0.15, 1)]
-    imgs = [p3.render(scene, None, 520, 520, view=v, style="toon", target=hc, distance=0.62, yfov=30, time=0.0,
-                      animation="Idle", shadows=False) for v in views]
-    write_png(out / f"{BODY}_face.png", grid(imgs, 4))
+    restore()
+    review_face(scene, sk, nodes, hc, out)
+    restore = bake_face(nodes, sk, key_dir(scene), TINTS["Skin"])
     # the four hair styles: 3/4 front, 3/4 back (over-the-shoulder view), side
     imgs = []
     for n in ("Wings", "Tail"):  # they hide the head from the side and the back
@@ -165,7 +274,8 @@ def review(scene, sk, nodes, sword, clips=None):
         if n in nodes:
             nodes[n].visible = True
     show_hair(nodes, default)
-    review_palette(scene, nodes, out)
+    restore()
+    review_palette(scene, nodes, sk, out)
     review_hands(scene, sk, out)
     if HARPIN:
         review_wings(scene, sk, out)

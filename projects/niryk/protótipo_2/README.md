@@ -14,27 +14,25 @@ têmporas, orelhas pontudas). Todos saem de `build_characters.py`.
 ```bash
 # Todos os corpos (ou só alguns), em processos paralelos
 python projects/niryk/protótipo_2/build_characters.py [human_m] [human_f] [harpin_m] [harpin_f] [--fast] [--jobs 2]
-
-# Humano masculino + espada de ferro (GLBs, estatísticas e folhas de revisão)
-python projects/niryk/protótipo_2/build_human.py            # final (malha fina, ~5 min)
-python projects/niryk/protótipo_2/build_human.py --fast     # iteração rápida (~3 min)
-python projects/niryk/protótipo_2/build_human.py --no-review
-python projects/niryk/protótipo_2/build_human.py --no-clips # revisão sem as tiras dos clipes
+#   --fast: malha mais grossa (iteração); as exportações usam o padrão
+#   --no-review, --no-clips, --all-clips, --no-cache
 
 # Teste sem tocar nos GLBs que o jogo importa: exportações e revisões vão para outra pasta
-NIRYK_P2_OUT=/tmp/p2 python projects/niryk/protótipo_2/build_human.py --fast
+NIRYK_P2_OUT=/tmp/p2 python projects/niryk/protótipo_2/build_characters.py human_f --fast
 ```
 
-As malhas ficam em cache (`.cache/`, chave = hash dos scripts de modelagem); `--no-cache` refaz.
+`build_human.py` continua existindo (= `build_characters.py human_m`). As malhas lentas (roupa, pele,
+asas e cauda dos Harpins) ficam em cache por etapa (`.cache/`, chave = hash do que cada etapa usa):
+mexer no rosto, no cabelo ou na pintura não refaz a roupa. `--no-cache` refaz tudo.
 
 Saídas:
 
-- `exports/characters/human_m.glb` — corpo, roupa inicial, `Hair_curto`, rig e clipes.
+- `exports/characters/<corpo>.glb` — corpo, roupa inicial, rosto, os penteados, rig e clipes.
 - `exports/equipment/sword_iron.glb` — espada de ferro.
-- `review/characters/human_m_*.png` — giro (toon), close-up da cabeça/tronco (toon e clay),
-  close-up das mãos (`human_m_hands.png`: mão da espada de frente, de lado, de baixo, em 1ª pessoa
-  no golpe e no acerto do `Attack1`; mão relaxada de três lados), tiras de animação;
-  `human_m_stats.json` com triângulos por parte.
+- `review/characters/<corpo>_*.png` — giro (toon), rosto (`_face.png`: de frente, 3/4 e perfil com luz
+  da esquerda, de frente e de trás-esquerda, a pele sombreada pelo mapa de sombra como o cliente
+  desenha), rosto ao lado das referências (`_face_ref.png`: de perto e à distância de jogo), penteados,
+  paletas, mãos, tiras de animação; `<corpo>_stats.json` com triângulos por parte.
 
 ## Como é feito (sem caroços)
 
@@ -57,12 +55,27 @@ Saídas:
    mínimo fundidos num bloco com sulcos, indicador um pouco separado, polegar à parte), nós dos
    dedos marcados. A mão direita é um punho fechado no cabo da espada (os dedos contornam o eixo
    do cabo e o polegar fecha por baixo); a esquerda fica relaxada. Não há ossos de dedos.
-6. **Rosto**: arco das sobrancelhas forte, maçãs do rosto, mandíbula e queixo quadrados, nariz de
-   ponte reta, olhos amendoados (íris grande com anel escuro, pupila, brilho e linha de cílios),
-   lábios com a linha da boca e a cavidade sob o lábio inferior.
-7. **Cabelo** (`hair.py`): calota de volume coberta por mechas grossas (`shapes.Strand`, um
-   varrido liso de seção lenticular): topete que sobe da testa e vai para trás, mechas largas
-   saindo do cocuruto, laterais penteadas para trás e pontas curtas na nuca.
+6. **Cabeça** (`head.py`, linha Genshin): crânio grande e um tubo de perfil para o rosto (largura =
+   silhueta de frente: queixo pequeno e pontudo, bochechas cheias; frente = perfil: testa, linha dos
+   olhos um pouco recuada, base do nariz, boca, queixo; seção mais quadrada nos olhos, então de frente
+   o rosto lê liso). Volumes finos por deslocamento suave do SDF (`sculpt_bumps`: área dos olhos
+   levemente recuada, bochechas, queixo), nariz = pontinha pequena. Feminino mais redondo e jovem;
+   masculino com o terço inferior mais longo e a mandíbula mais firme. Sem geometria de olho/boca.
+7. **Rosto pintado** (`face.py`, `face_paint.py`): olhos, cílios, sobrancelhas e boca são texturas
+   pintadas com numpy (formas com antisserrilhado e degradês, 1024 px) em **decalques**: cópias dos
+   triângulos do `Head_Skin` de cada região, empurradas 0,4 a 1 mm pela normal (os opacos — branco
+   do olho e íris — recortados no contorno). Olho grande (~1/6 da altura do rosto): íris escura em
+   cima e clara embaixo, aro, pupila, dois ou três brilhos, linha grossa de cílios que se abre no canto
+   externo (cílios no feminino), prega da pálpebra, sombra da pálpebra no branco, sugestão de cílio
+   inferior; sobrancelha fina, boca mínima, rubor na pele. O olho direito espelha o esquerdo.
+   **Sombra do rosto por mapa** (técnica do Genshin): veja "Contrato do rosto" abaixo.
+   **Cabelo** (`hair.py`): calota lisa de volume + mechas finas e pontudas em camadas, cada uma um
+   varrido de seção em lente (larga e fina, bordas curvadas para a cabeça) numa gaiola grossa
+   suavizada por um passo de Catmull-Clark; normais da superfície lisa, puxadas em parte para um casco
+   em volta da cabeça (faixas de toon limpas). Franja emoldurando o rosto (sobre as íris as pontas
+   param acima da linha de cílios), mechas laterais na frente das orelhas, massa lisa atrás. Dois tons
+   nas cores de vértice (base 0,8; lado de baixo / de dentro 0,6) e o anel de anjo (1,0), uma faixa em
+   zigue-zague cortada na malha para ter borda nítida.
 8. **Pesos** (`rig.py`): funções suaves da posição (pertinência ao braço/perna/cabeça e
    transições em smoothstep nas juntas). Corpo e roupa usam a mesma função; nada é rígido nas
    juntas. As mãos nunca recebem peso das coxas; cada lado da saia segue a sua coxa e o meio é
@@ -83,22 +96,55 @@ Saídas:
   da mão e fica no chão); todos os outros clipes também chaveiam o socket (volta para a mão).
 - Nós (o que o cliente procura):
 
-  | Nó | Conteúdo | Materiais |
+  | Nó | Conteúdo | Material |
   |---|---|---|
-  | `Body` | pele abaixo do pescoço (braços, mãos) | `Skin` |
-  | `Head_Skin` | cabeça e pescoço | `Skin` |
-  | `Head_Eyes` | globo, íris, pupila, brilho, linha dos cílios | `EyeWhite`, `Eye`, `Dark` |
-  | `Head_Brows` | sobrancelhas | `Hair` |
-  | `Hair_curto` | cabelo curto | `Hair` |
+  | `Body` | pele abaixo do pescoço (braços, mãos) | `Skin` (sem texturas) |
+  | `Head_Skin` | cabeça e pescoço, com UVs | `Skin` com `baseColorTexture` + `occlusionTexture` (mapa de sombra) |
+  | `Head_Eyes` | brancos dos olhos | `EyeWhite` |
+  | `Head_Iris` | íris e pupilas | `Eye` |
+  | `Head_EyeShine` | brilhos dos olhos | `EyeShine` (MASK) |
+  | `Head_Lashes` | linha de cílios, cílios, prega da pálpebra, cílio inferior | `Lash` (MASK) |
+  | `Head_Brows` | sobrancelhas | `Brow` (MASK) |
+  | `Head_Mouth` | boca | `Mouth` (MASK) |
+  | `Head_Plumes` | Harpins: penas das têmporas | `Plume` |
+  | `Hair_curto` … | um penteado por nó (o cliente mostra um) | `Hair` (+ `Leather` nos prendedores) |
   | `Outfit` | túnica, calça, cinto + fivela, braçadeiras, botas | `Cloth_A`, `Cloth_B`, `Leather`, `Metal` |
 
   Em 1ª pessoa, esconda os nós que começam com `Head_` ou `Hair_`.
 - **Slots de cor**: o cliente multiplica a cor escolhida. As cores base dos slots
-  (`Skin, Hair, Eye, Cloth_A, Cloth_B, Leather, Metal`) são brancas; o detalhe pintado
-  (bainhas, solas, tiras, lábios, íris) está na luminância das cores de vértice. `EyeWhite` e
-  `Dark` não são tingidos. Tintas padrão do visual inicial (usadas nas revisões, `common.TINTS`):
+  (`Skin, Hair, Eye, Brow, Cloth_A, Cloth_B, Leather, Metal`) são brancas; o detalhe pintado
+  (bainhas, solas, tiras) está na luminância das cores de vértice e, no rosto, nas texturas.
+  `EyeWhite`, `EyeShine`, `Lash` e `Mouth` não são tingidos; `Brow` leva a cor do cabelo. Tintas padrão do visual inicial (usadas nas revisões, `common.TINTS`):
   Skin `#e8b48e`, Hair `#5e3a24`, Eye `#3f8a5c`, Cloth_A `#4d7d3c`, Cloth_B `#6e5a48`,
   Leather `#7c5032`, Metal `#b9c0ca`.
+
+## Contrato do rosto (cliente)
+
+- **Materiais**: `Skin` do `Head_Skin` (tingido pela pele; `baseColorTexture` quase branca com rubor e
+  um toque sob o nariz; `occlusionTexture` = mapa de sombra, abaixo). `EyeWhite` (sem tinta), `Eye`
+  (íris em cinza, tingida pela cor dos olhos), `EyeShine` (branco, sem tinta, `MASK`), `Lash` (marrom
+  escuro/preto, sem tinta, `MASK`), `Brow` (cinza, tingido pela cor do cabelo, `MASK`), `Mouth` (sem
+  tinta, `MASK`). Todos os `MASK` com `alphaCutoff` 0,5 (o alfa tem uma rampa de ~1,6 px na borda, então
+  o contorno a 0,5 fica liso de perto). O `Body` usa outro material também chamado `Skin`, sem texturas.
+- **Decalques**: `Head_*` rígidos no osso `Head`, 0,4 a 1 mm acima da pele (branco 0,42, íris 0,56,
+  sobrancelha e boca 0,51, brilho 0,74, cílios 0,88 mm no feminino; 0,45 / 0,6 / 0,55 / 0,8 / 0,95 mm no
+  masculino). Normais =
+  as da pele.
+- **UVs do `Head_Skin`** (`head.py`): u = azimute em volta de um eixo vertical (u = 0,5 na linha do
+  meio do rosto, o lado **esquerdo** do personagem em u > 0,5, costura descendo pela nuca, a textura
+  repete em u), com mais resolução na frente; v = elevação vista da junção cabeça-pescoço. Simétrico:
+  u(−x) = 1 − u(x). Mesmas UVs para a cor e para o mapa.
+- **Mapa de sombra do rosto** (`occlusionTexture`, linear, canal R; 1024 px): autorado para luz vinda
+  da **esquerda** do personagem (+X). Seja φ o ângulo horizontal entre a frente da cabeça (+Z) e a
+  direção da luz (espaço da cabeça, projetado em XZ), de 0 (de frente) a π (bem de trás) passando
+  pelo lado esquerdo. O texel com valor `t` está **iluminado enquanto φ < t·π** (então a bochecha
+  direita escurece primeiro e a sombra varre o rosto). Para luz vinda da direita, o cliente espelha
+  u (amostra em `1 − u`). Base: no rosto, um modelo redondo por altura (t = ½ + asen(x / w(y)) / π, w =
+  meia largura do rosto), então a fronteira segue a curva da bochecha; no resto (laterais, nuca,
+  pescoço), o azimute da normal de um proxy liso da cabeça (t = ½ + a/π, limitado: a metade direita
+  de trás lê 0, a esquerda 1). Direção de arte: uma pequena sombra ao lado do nariz em ângulos médios
+  (cresce para longe do nariz) e o **pescoço sob a mandíbula sempre na sombra** (t = 0), com borda
+  nítida ao longo da mandíbula e da base do crânio.
 
 ## Clipes (30 fps, todos os ossos chaveados, LINEAR)
 
@@ -123,10 +169,13 @@ ou na planta).
 - `shapes.py` — `Tube` (tubo de perfil), `Offset` (casca de roupa), `Strand` (mecha), `wedge`.
 - `body.py` — corpo (tronco, ombros, pescoço, braços, mãos relaxada e fechada no cabo, pernas,
   pés, cabeça).
-- `face.py` — olhos e sobrancelhas. `hair.py` — `Hair_curto`. `clothes.py` — roupa inicial.
+- `head.py` — cabeça (SDF) e UVs do `Head_Skin`. `face.py` — decalques do rosto, UVs, materiais.
+  `face_paint.py` — desenho 2D e texturas pintadas do rosto, mapa de sombra. `hair.py` — penteados.
+  `clothes.py` — roupa inicial.
 - `meshing.py` — SDF → malha lisa no orçamento (regiões, faces escondidas). `rig.py` — pesos.
   `anim.py` — clipes.
-- `equipment.py` — espada de ferro. `build_human.py` — monta, exporta e renderiza a revisão.
+- `equipment.py` — espada de ferro. `build_characters.py` — monta, exporta; `review_sheets.py` —
+  folhas de revisão.
 - `nature.py` — natureza da clareira (outro autor).
 
 ## Harpins (`harpin_m`, `harpin_f`)
@@ -148,8 +197,9 @@ Mesmo pipeline e mesmo rosto anime dos humanos, com:
   `Toes` = dedos da frente.
 - **Cauda** (nó `Tail`, slot `Plume`, ossos `Tail1..6` a partir do `Hips`): longa, coberta de plumas
   em telhas, com um pincel de mechas grandes que termina em pontas.
-- **Cabeça**: orelhas pontudas (`Head_Skin`), tufos de penas nas têmporas (`Head_Plumes`, `Plume`),
-  penteados `Hair_espetado`, `Hair_crista`, `Hair_plumado` (mechas anime e penas no slot `Hair`).
+- **Cabeça**: o mesmo rosto pintado, orelhas pontudas (`Head_Skin`), tufos de penas nas têmporas
+  (`Head_Plumes`, `Plume`), penteados `Hair_espetado`, `Hair_crista`, `Hair_plumado` (mechas anime e penas
+  no slot `Hair`).
 - **Roupa**: a mesma túnica e gola com fendas para as asas, mais curta atrás com um entalhe sobre a
   cauda; sem calça nem botas.
 - **Clipes**: os mesmos 10, com passos digitígrados (os dedos plantam e não deslizam; o tarso rola

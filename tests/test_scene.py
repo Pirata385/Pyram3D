@@ -130,3 +130,25 @@ def test_sdf_bone_tags_give_exact_skinning():
     torso = (np.abs(mesh.vertices[:, 0]) < 0.15)
     assert moved[torso].max() < 1e-9          # body untouched
     assert moved[mesh.vertices[:, 0] > 0.5].min() > 0.1  # arm tip follows the bone
+
+
+def test_render_alpha_mask_shows_what_is_behind():
+    """MASK fragments under the cutoff are discarded: the quad behind shows through, not the
+    background."""
+    import numpy as np
+    s = p3.Scene("Mask")
+    back = p3.plane(1.0).rotate((90, 0, 0))
+    back.set_material(p3.Material("Red", "#ff0000", unlit=True))
+    img = np.zeros((8, 8, 4))
+    img[..., :3] = 1.0
+    img[:, 4:, 3] = 1.0  # left half transparent, right half opaque white
+    front = p3.plane(1.0).rotate((90, 0, 0))
+    front.set_material(p3.Material("Decal", "#ffffff", unlit=True, alpha_mode="MASK",
+                                   base_color_texture=p3.Texture(img, filter="nearest")))
+    s.add(back)
+    s.add(front, position=(0, 0, 0.05))
+    out = p3.render(s, None, 64, 64, view="front", style="toon", outline=False, rim=0.0, bloom=0.0,
+                    vignette=0.0, ground=False, shadows=False, target=(0, 0, 0), distance=1.5)
+    left, right = out[32, 22].astype(int), out[32, 42].astype(int)
+    assert left[0] > 150 and left[1] < 80, left  # red quad seen through the cut-out
+    assert right.min() > 200, right  # opaque white half
