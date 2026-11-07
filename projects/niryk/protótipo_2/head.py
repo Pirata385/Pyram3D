@@ -43,7 +43,7 @@ if FEMALE:
                 ((0.0, 1.537), (0.012, 0.0095), 0.0009, False),     # small pointed chin
                 ((0.0, 1.552), (0.013, 0.0075), -0.0006, False)],   # soft hollow above the chin
         eye_c=(0.040, 1.636),
-        nose_tip=(1.590, 0.0802), nose_r=(0.0042, 0.0036, 0.0046), nose_root=(1.628, 0.0740),
+        nose_tip=(1.590, 0.0790), nose_r=(0.0038, 0.0033, 0.0042), nose_root=(1.628, 0.0740),
         ear=((0.081, 1.624, -0.022), (0.0105, 0.021, 0.014)),
         neck=dict(w=(0.044, 0.038, 0.037), f=(0.042, 0.037, 0.036), k=(0.05, 0.043, 0.042)),
         head_scale=1.07,
@@ -63,7 +63,7 @@ else:
                 ((0.0, 1.531), (0.016, 0.009), 0.0008, False),
                 ((0.0, 1.546), (0.015, 0.007), -0.0005, False)],
         eye_c=(0.040, 1.635),
-        nose_tip=(1.588, 0.0835), nose_r=(0.0047, 0.004, 0.005), nose_root=(1.628, 0.0758),
+        nose_tip=(1.588, 0.0812), nose_r=(0.0041, 0.0035, 0.0045), nose_root=(1.628, 0.0758),
         ear=((0.083, 1.624, -0.024), (0.011, 0.023, 0.015)),
         neck=dict(w=(0.054, 0.045, 0.044), f=(0.05, 0.043, 0.042), k=(0.058, 0.05, 0.05)),
         head_scale=1.03,
@@ -116,7 +116,8 @@ def face_mass():
 
 
 def nose():
-    """A faint bridge from between the eyes down to a tiny pointed tip."""
+    """A faint bridge from between the eyes down to a tiny pointed tip (no overhang under it: the
+    drawn tick in the skin texture does the rest)."""
     ry, rz = P["nose_root"]
     ty, tz = P["nose_tip"]
     bridge = Tube((0, ry, rz - 0.003), (0, ty + 0.002, tz - 0.003), {0: 0.0034, 1: 0.004},
@@ -161,7 +162,7 @@ def head_base():
 
 
 def head():
-    base = head_base().smooth_union(nose(), 0.006)
+    base = head_base().smooth_union(nose(), 0.009)
     base = base.smooth_union(ears(), 0.008)
     return base.paint(color=(1, 1, 1), material=slot("Skin"))
 

@@ -231,12 +231,13 @@ def collar():
     trim = grow.intersect(sdf.custom(band, np.array([-0.4, 1.2, -0.3]), np.array([0.4, 1.6, 0.3])))
     trim = trim.paint(color=(1, 1, 1), material=slot("Cloth_B"))
     # stand collar around the neck, higher at the back than under the chin: the skin of the neck
-    # (and the slope of the shoulders) grown by 7.5 mm, cut to a band. It follows the skin exactly
+    # (and the slope of the shoulders) grown by 10.5 mm (room for the meshing error: the fine neck
+    # skin must never poke through), cut to a band. It follows the skin exactly
     # (a tube of its own sat partly inside the neck base: brown smears and skin poking through);
     # its inside and the skin under it are dropped at build time, its foot hides under the capelet.
     g = 0.86 if FEMALE else 1.0
     skin = sdf.smooth_union(B.torso(), B.shoulders(), k=0.05).smooth_union(B.neck(), 0.04)
-    stand = Offset(skin, 0.0075, t_max=0.01).intersect(sdf.capsule((0, 1.3, -0.028), (0, 1.75, -0.022), 0.09 * g))
+    stand = Offset(skin, 0.0105, t_max=0.013).intersect(sdf.capsule((0, 1.3, -0.028), (0, 1.75, -0.022), 0.09 * g))
     stand = _cut(stand, (0, 1.43, 0), (0, -1, 0), 0.004)
     stand = _cut(stand, (0, 1.548 if FEMALE else 1.553, 0.0), (0, 1.0, 0.62), 0.006)  # back higher
     stand = stand.paint(color=(1, 1, 1), material=slot("Cloth_B"))

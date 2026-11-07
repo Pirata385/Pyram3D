@@ -1,8 +1,9 @@
 """Review sheets for the prototype 2 characters (build_characters.py calls review()).
 
   <body>_turnaround.png  front, 3/4, side, back (toon, game lights, default look)
-  <body>_face.png        face close-ups (front, 3/4, profile) lit from the left, from the front and from
-                         behind-left, Head_Skin shaded with the face shadow map as the client draws it
+  <body>_face.png        face close-ups (front, 3/4 toward the shadow, 3/4 toward the light) with the light
+                         from the left at 30, 60, 90 and 120 deg (rows), Head_Skin shaded with the face
+                         shadow map as the client draws it
   <body>_face_ref.png    the style references (docs/art/references/rostos) next to the face, in close-up
                          and at game distance
   <body>_hair.png        the four hair styles: 3/4 front, 3/4 back (over the shoulder), side
@@ -189,11 +190,15 @@ def review_wings(scene, sk, out):
 
 
 def review_face(scene, sk, nodes, hc, out):
-    """Face close-ups lit from the left, the front and behind-left (front, 3/4, profile), and the
-    style references next to the face (close-up and game distance)."""
+    """Face close-ups with the light coming from the character's left at 30, 60, 90 and 120 deg
+    (rows; 28 deg up) seen from the front, 3/4 toward the shadow side and 3/4 toward the lit side,
+    and the style references next to the face (close-up and game distance)."""
     from pyram3d.image import grid, read_image, write_png
-    lights = [(1.0, 0.45, 0.25), (0.0, 0.5, 1.0), (0.85, 0.45, -0.6)]
-    views = [(0.0, 0.03, 1), (0.7, 0.12, 1), (1, 0.02, 0.05)]
+    import math
+    e = math.radians(28)
+    lights = [(math.sin(math.radians(a)) * math.cos(e), math.sin(e), math.cos(math.radians(a)) * math.cos(e))
+              for a in (30, 60, 90, 120)]
+    views = [(0.0, 0.03, 1), (-0.7, 0.1, 1), (0.7, 0.1, 1)]
     node, old = set_key(scene, (0, 0.5, 1))
     imgs = []
     for L in lights:
@@ -201,7 +206,7 @@ def review_face(scene, sk, nodes, hc, out):
         set_key(scene, L)
         restore = bake_face(nodes, sk, L, TINTS["Skin"])
         for v in views:
-            imgs.append(p3.render(scene, None, 440, 440, view=v, style="toon", target=hc, distance=0.55, yfov=30,
+            imgs.append(p3.render(scene, None, 400, 400, view=v, style="toon", target=hc, distance=0.55, yfov=30,
                                   time=0.0, animation="Idle", shadows=False))
         restore()
     write_png(out / f"{BODY}_face.png", grid(imgs, 3))

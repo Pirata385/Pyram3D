@@ -93,12 +93,12 @@ HAIR_CELL = 0.0042 if FAST else 0.0034  # Harpin legs and wing arms
 # Regions meshed finely on their own (their open cuts lie under the collar and the bracers).
 HEAD_BOX = (np.array([-0.15, 1.42, -0.17]), np.array([0.15, 1.86, 0.17]))
 HAND_CUT = UPPER_ARM + FOREARM * 0.72  # hands start here along the arm (under the bracer)
-BUDGET = {"Body": 1400, "Head": 5000, "Hand": 1500, "Tunic": 3600, "Collar": 1700, "Trousers": 1000,
+BUDGET = {"Body": 1400, "Head": 5000, "Hand": 1500, "Tunic": 3600, "Collar": 2300, "Trousers": 1000,
           "Boots": 1700, "Belt": 1100, "Bracers": 700, "Underskirt": 600,
           # Harpins
           "Legs": 2400, "Tail": 1600, "WingArm": 500}
 if HARPIN:
-    BUDGET.update({"Body": 1200, "Head": 4400, "Hand": 1100, "Tunic": 2700, "Collar": 1300})
+    BUDGET.update({"Body": 1200, "Head": 4400, "Hand": 1100, "Tunic": 2700, "Collar": 1800})
 LEG_CUT = 0.8  # Harpins: the legs below this height are meshed finely on their own (under the skirt)
 TAIL_CELL = 0.0048 if FAST else 0.0042
 
@@ -129,7 +129,8 @@ def garment_sizing():
     knee = lambda P: np.abs(P[:, 1] - KNEE_Y) < 0.09  # noqa: E731
     shoulder = lambda P: (np.abs(P[:, 0]) > 0.12) & (P[:, 1] > 1.3)  # noqa: E731
     elbow = lambda P: (np.abs(P[:, 0]) > 0.25) & (P[:, 1] > 1.05)  # noqa: E731
-    return sizing([(knee, 0.026), (shoulder, 0.028), (elbow, 0.026)], 0.05)
+    neck = lambda P: (np.abs(P[:, 0]) < 0.1) & (P[:, 1] > 1.38)  # noqa: E731  (the stand collar, seen up close)
+    return sizing([(neck, 0.012), (knee, 0.026), (shoulder, 0.028), (elbow, 0.026)], 0.05)
 
 
 def body_sizing():

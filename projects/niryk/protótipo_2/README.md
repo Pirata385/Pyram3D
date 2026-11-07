@@ -29,9 +29,8 @@ Saídas:
 
 - `exports/characters/<corpo>.glb` — corpo, roupa inicial, rosto, os penteados, rig e clipes.
 - `exports/equipment/sword_iron.glb` — espada de ferro.
-- `review/characters/<corpo>_*.png` — giro (toon), rosto (`_face.png`: de frente, 3/4 e perfil com luz
-  da esquerda, de frente e de trás-esquerda, a pele sombreada pelo mapa de sombra como o cliente
-  desenha), rosto ao lado das referências (`_face_ref.png`: de perto e à distância de jogo), penteados,
+- `review/characters/<corpo>_*.png` — giro (toon), rosto (`_face.png`: de frente e 3/4 dos dois lados com a luz da
+  esquerda a 30°, 60°, 90° e 120°, a pele sombreada pelo mapa de sombra como o cliente desenha), rosto ao lado das referências (`_face_ref.png`: de perto e à distância de jogo), penteados,
   paletas, mãos, tiras de animação; `<corpo>_stats.json` com triângulos por parte.
 
 ## Como é feito (sem caroços)
@@ -71,9 +70,12 @@ Saídas:
    **Sombra do rosto por mapa** (técnica do Genshin): veja "Contrato do rosto" abaixo.
 8. **Cabelo** (`hair.py`): calota lisa de volume + mechas finas e pontudas em camadas, cada uma um
    varrido de seção em lente (larga e fina, bordas curvadas para a cabeça) numa gaiola grossa
-   suavizada por um passo de Catmull-Clark; normais da superfície lisa, puxadas em parte para um casco
-   em volta da cabeça (faixas de toon limpas). Franja emoldurando o rosto (sobre as íris as pontas
-   param acima da linha de cílios), mechas laterais na frente das orelhas, massa lisa atrás. Dois tons
+   suavizada por um passo de Catmull-Clark; normais da superfície lisa, puxadas quase todo o caminho
+   para um casco liso (elipsoide em volta da cabeça, cilindro para o que pende), então as faixas de toon
+   e os dois tons formam grandes formas limpas em vez de listras por mecha. Franja emoldurando o rosto (sobre as íris as pontas
+   param acima da linha de cílios), mechas laterais na frente das orelhas, massa lisa atrás. Masculino:
+   franja em camadas repartida de lado (do lado esquerdo dele), pontas pontudas, volume no cocuruto;
+   o curto tem tufos pontudos saindo da silhueta atrás e dos lados (nada de "cuia"). Dois tons
    nas cores de vértice (base 0,8; lado de baixo / de dentro 0,6) e o anel de anjo (1,0), uma faixa em
    zigue-zague cortada na malha para ter borda nítida.
 9. **Pesos** (`rig.py`): funções suaves da posição (pertinência ao braço/perna/cabeça e
@@ -139,12 +141,19 @@ Saídas:
   direção da luz (espaço da cabeça, projetado em XZ), de 0 (de frente) a π (bem de trás) passando
   pelo lado esquerdo. O texel com valor `t` está **iluminado enquanto φ < t·π** (então a bochecha
   direita escurece primeiro e a sombra varre o rosto). Para luz vinda da direita, o cliente espelha
-  u (amostra em `1 − u`). Base: no rosto, um modelo redondo por altura (t = ½ + asen(x / w(y)) / π, w =
-  meia largura do rosto), então a fronteira segue a curva da bochecha; no resto (laterais, nuca,
-  pescoço), o azimute da normal de um proxy liso da cabeça (t = ½ + a/π, limitado: a metade direita
-  de trás lê 0, a esquerda 1). Direção de arte: uma pequena sombra ao lado do nariz em ângulos médios
-  (cresce para longe do nariz) e o **pescoço sob a mandíbula sempre na sombra** (t = 0), com borda
-  nítida ao longo da mandíbula e da base do crânio.
+  u (amostra em `1 − u`). Forma (linha Genshin): conforme a luz gira da frente para o lado, a
+  bochecha do outro lado escurece primeiro ao longo de uma fronteira **curva** que acompanha a maçã do
+  rosto e a mandíbula; com luz de 30° a 60° quase o rosto todo fica aceso (só uma fatia na bochecha
+  distante); as órbitas dos olhos e o centro do rosto ficam acesos até bem depois de 90° (~110°); uma
+  pequena sombra triangular ao lado do nariz aparece em ângulos médios (~43° a 70°); com a luz atrás,
+  a parte acesa vira uma meia-lua na bochecha do lado da luz. Valores: posição normalizada s = x / w(y)
+  (w = meia largura do rosto), t = 0,62 − 0,5·|s|^p do lado direito (p por altura: mandíbula 1,6, maçã
+  do rosto 1,25, faixa dos olhos 2,4, testa 2,0) e t = 0,62 + 0,38·s^q do lado esquerdo; órbitas ≥ 0,61;
+  fora do rosto (laterais, nuca) s vem do azimute da normal de um proxy liso (atrás à direita 0, atrás
+  à esquerda 1). O **pescoço sob a mandíbula fica sempre na sombra** (t = 0), com borda nítida ao longo
+  da mandíbula e da base do crânio.
+- **Nariz**: uma pontinha pequena sem saliência por baixo; o desenho está na cor da pele: um traço curto
+  e inclinado do lado direito da ponta (masculino) ou uma curvinha suave sob a ponta (feminino).
 
 ## Clipes (30 fps, todos os ossos chaveados, LINEAR)
 

@@ -31,6 +31,7 @@ import pyram3d as p3
 from pyram3d import math3d as m3
 
 STYLES = ("espetado", "crista", "plumado") if HARPIN else ("curto", "rabo", "longo", "coque")
+PART_M = 24.0  # male side part (azimuth, on his left)
 CRAN_C, CRAN_R = H.CRAN_C, H.CRAN_R
 BASE, UNDER, RING = 0.8, 0.6, 1.0  # vertex-color luminance: base tone, underside, angel ring
 
@@ -77,7 +78,7 @@ def cap_t(az, el):
     top = _ss(10, 70, el)
     back = _ss(90, 160, np.abs(((np.asarray(az, float) + 180) % 360) - 180))
     base = 0.015 if FEMALE else 0.012
-    return base + (0.011 if FEMALE else 0.009) * top + 0.004 * back
+    return base + (0.011 if FEMALE else 0.012) * top + 0.004 * back
 
 
 def P(az, el, extra=0.0):
@@ -236,15 +237,19 @@ def bangs():
         L.append(lock([P(-22, 62, 0.0), P(-6, 50, 0.009), P(10, 36, 0.011), P(28, 18, 0.011), (40, -4, 0.0085)],
                       0.028, 0.0026, peak=0.36, bend=0.3))
     else:
-        for r, t, e, w, c in ((-60, -55, -10, 0.022, -5), (-44, -40, -6, 0.025, -3), (-28, -25, -4, 0.028, -1),
-                              (-12, -10, -13, 0.024, 1), (3, 3, -18, 0.022, 0), (16, 15, -5, 0.026, 1),
-                              (31, 30, -5, 0.027, 2), (47, 44, -8, 0.023, 4), (62, 57, -11, 0.02, 5)):
-            L.append(fringe(r, t, e, w, 0.0028, c, peak=0.34))
-        for r, t, e, c in ((-34, -33, -8, -2), (9, 10, -14, 1), (38, 38, -9, 2)):  # thin pointed strands
-            L.append(fringe(r, t, e, 0.0105, 0.0021, c, lift=0.0068, peak=0.3))
-        for r, t, e, c in ((-27, -23, -1, -1), (-3, -2, -6, 0), (19, 17, -1, 1)):  # shorter layer, for volume
-            L.append(lock([P(r * 0.8, 56, 0.0), P(r * 0.9, 42, 0.01), P((r + t) / 2, 30, 0.011), P(t, 16, 0.011),
-                           (t + c, e, 0.0095)], 0.02, 0.0026, bend=0.3))
+        # swept from a side part on his left (az PART): most locks root along the part and sweep
+        # across the forehead to his right in layers, a few fall to the left; pointed tips
+        part = PART_M
+        for el0, t, e, w in ((68, -4, -17, 0.027), (63, -20, -6, 0.028), (57, -36, -7, 0.026),
+                             (51, -50, -11, 0.023), (45, -62, -15, 0.019)):
+            L.append(lock([P(part - 3, el0, -0.002), P((part + t) / 2 + 6, (el0 + 18) / 2 + 8, 0.012),
+                           P(t + 9, 15, 0.01), (t, e, 0.0065)], w, 0.0029, peak=0.36, bend=0.32))
+        for el0, t, e, w in ((62, 31, -5, 0.025), (54, 47, -9, 0.022), (47, 60, -13, 0.019)):
+            L.append(lock([P(part + 3, el0, -0.002), P((part + t) / 2 - 2, (el0 + 18) / 2 + 6, 0.011),
+                           P(t - 4, 14, 0.009), (t, e, 0.0065)], w, 0.0028, peak=0.36, bend=0.32))
+        for el0, t, e in ((66, -13, -11), (60, -44, -9), (58, 40, -7)):  # thin pointed strands
+            L.append(lock([P(part, el0, -0.002), P((part + t) / 2 + 3, (el0 + 18) / 2 + 7, 0.013),
+                           P(t + 5, 14, 0.011), (t, e, 0.0078)], 0.0105, 0.0021, peak=0.3, bend=0.3))
     return L
 
 
@@ -253,13 +258,19 @@ def sides(length="short"):
     L = []
     for s in (1, -1):
         if length == "short":
-            L.append(lock([P(s * 68, 46, -0.002), P(s * 73, 30, 0.005), P(s * 77, 8, 0.008), (s * 78, -22, 0.008)],
-                          0.025, 0.003, bend=0.32))
-            L.append(lock([P(s * 84, 44, -0.002), P(s * 86, 24, 0.007), P(s * 88, 6, 0.014), (s * 89, -9, 0.016)],
-                          0.026, 0.0032, bend=0.32))  # over the temple and the top of the ear
-            L.append(lock([P(s * 100, 44, -0.002), P(s * 103, 26, 0.008), P(s * 106, 2, 0.02), (s * 108, -18, 0.024)],
+            if FEMALE:
+                L.append(lock([P(s * 68, 46, -0.002), P(s * 73, 30, 0.005), P(s * 77, 8, 0.008), (s * 78, -22, 0.008)],
+                              0.025, 0.003, bend=0.32))
+            else:  # sideburn in front of the ear
+                L.append(lock([P(s * 66, 44, -0.002), P(s * 71, 26, 0.006), P(s * 74, 4, 0.008), (s * 76, -18, 0.007)],
+                              0.02, 0.0028, bend=0.32))
+            # swept back over the ear and behind it, the tips pointing back
+            fl = 1.0 if FEMALE else 1.5  # male: the tips flare out (a spiky silhouette)
+            L.append(lock([P(s * 74, 50, -0.002), P(s * 86, 28, 0.009), P(s * 98, 6, 0.017), (s * 112, -12, 0.022 * fl)],
+                          0.027, 0.0034, bend=0.32))
+            L.append(lock([P(s * 96, 50, -0.002), P(s * 106, 26, 0.008), P(s * 116, 2, 0.016), (s * 128, -20, 0.02 * fl)],
                           0.028, 0.0034, bend=0.32))
-            L.append(lock([P(s * 124, 42, -0.002), P(s * 126, 22, 0.007), P(s * 128, -6, 0.014), (s * 130, -30, 0.018)],
+            L.append(lock([P(s * 120, 46, -0.002), P(s * 128, 22, 0.007), P(s * 134, -6, 0.014), (s * 140, -30, 0.018 * fl)],
                           0.028, 0.0034, bend=0.32))
         else:
             y_tip = {"jaw": 1.565, "long": 1.47}[length]
@@ -295,14 +306,15 @@ def nape(length=0.0):
     azs = (124, 152, 180, -152, -124) if not FEMALE else (118, 142, 166, -166, -142, -118)
     for i, az in enumerate(azs):
         el_tip = -46 - 5 * (i % 2)
-        tip = scalp(az, el_tip, 0.013)
+        tip = scalp(az, el_tip, 0.013 if FEMALE else 0.026)
         if length:
             tip = tip + np.array([0, -length / H.HEAD_SCALE, -0.008])
-        L.append(lock([P(az, 36, -0.002), P(az, 18, 0.004), P(az, -14, 0.007), scalp(az, -34, 0.014), tip], 0.024, 0.004,
-                      bend=0.35))
+        L.append(lock([P(az, 36, -0.002), P(az, 18, 0.004), P(az, -14, 0.007), scalp(az, -34, 0.014 if FEMALE else 0.02),
+                       tip], 0.024 if FEMALE else 0.022, 0.004, bend=0.35))
     for i, az in enumerate(np.array(azs[:-1]) + (14 if not FEMALE else 12)):  # upper layer, shorter
         az = float((az + 180) % 360 - 180)
-        L.append(lock([P(az, 44, -0.002), P(az, 30, 0.008), P(az, 4, 0.01), (az, -16 - 6 * (i % 2), float(cap_t(az, -16)) + 0.018)],
+        L.append(lock([P(az, 44, -0.002), P(az, 30, 0.008), P(az, 4, 0.01),
+                       (az, -16 - 6 * (i % 2), float(cap_t(az, -16)) + (0.018 if FEMALE else 0.03))],
                       0.022, 0.004, bend=0.35))
     return L
 
@@ -312,7 +324,11 @@ def nape(length=0.0):
 def style_curto():
     if FEMALE:  # chin-length bob: side locks to the jaw, the back to the nape curling in
         return [cap(6)] + bangs() + top() + sides("jaw") + nape(0.03)
-    return [cap()] + bangs() + top() + sides("short") + nape()
+    # a Genshin male lead's short cut: swept bangs, volume at the crown, layered pointed clumps
+    # standing off the back and the sides (no smooth bowl)
+    crown = spikes((-160, 168, 136, -128), 84, 44, 0.04, w=0.033, th=0.0045)
+    layers = spikes((-165, -135, -105, 105, 135, 165), 50, 2, 0.034, w=0.03, th=0.0045)
+    return [cap()] + bangs() + sides("short") + nape() + crown + layers
 
 
 def tie_point():
@@ -571,22 +587,30 @@ def cut_iso(m: p3.Mesh, f: np.ndarray):
     return out, np.array(inside)
 
 
-def hull_normals(V, N, strength=0.55):
-    """Bend the normals of the hair on the head part of the way toward a smooth hull around it."""
-    r = CRAN_R + 0.02
+def hull_normals(V, N, strength=0.82, hang=0.6):
+    """Shading normals: the lock's own normal bent most of the way toward a smooth hull, so toon
+    bands draw big clean shapes across all the locks instead of streaks per lock. On the head the
+    hull is an ellipsoid around the cranium; hanging hair (ponytail, long hair) uses a vertical
+    cylinder around the back of the head."""
+    r = CRAN_R + 0.025
     ne = (V - CRAN_C) / (r * r)
     ne /= np.linalg.norm(ne, axis=1, keepdims=True)
-    dist = np.linalg.norm(V - CRAN_C, axis=1)
-    w = (strength * _ss(0.16, 0.12, dist))[:, None]
-    n = N * (1 - w) + ne * w
-    return n / np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
+    nc = V - np.array([0.0, 0.0, CRAN_C[2] - 0.02])
+    nc[:, 1] = 0.0
+    nc /= np.maximum(np.linalg.norm(nc, axis=1, keepdims=True), 1e-9)
+    on_head = _ss(CRAN_C[1] - 0.13, CRAN_C[1] - 0.06, V[:, 1])[:, None]
+    nh = ne * on_head + nc * (1 - on_head)
+    nh /= np.linalg.norm(nh, axis=1, keepdims=True)
+    w = (strength * on_head + hang * (1 - on_head))
+    n = N * (1 - w) + nh * w
+    return n / np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12), nh
 
 
 def shade(m: p3.Mesh) -> p3.Mesh:
     """Bake the two tones and the angel ring into the vertex colors (head space mesh)."""
     m.triangulate()
-    m.normals = m.vertex_normals()
-    m.normals = hull_normals(m.vertices, m.normals)
+    geo = m.vertex_normals()
+    m.normals, _ = hull_normals(m.vertices, geo)
     f = ring_field(m.vertices, m.normals)
     m, inside = cut_iso(m, f)
     # split the vertices on the ring's edge: crisp color edge
@@ -605,10 +629,11 @@ def shade(m: p3.Mesh) -> p3.Mesh:
     ring_v = np.zeros(m.num_vertices, bool)
     ring_v[F[inside].ravel()] = True
     V, N = m.vertices, m.normals
-    dn = (V - CRAN_C) / np.maximum(np.linalg.norm(V - CRAN_C, axis=1, keepdims=True), 1e-9)
-    under = _ss(0.15, -0.55, N[:, 1])
-    inner = _ss(0.05, -0.4, np.einsum("ij,ij->i", N, dn)) * _ss(0.17, 0.12, np.linalg.norm(V - CRAN_C, axis=1))
-    lum = BASE - (BASE - UNDER) * np.maximum(under, inner)
+    _, nh = hull_normals(V, N)
+    # two tones in big shapes: the lower part of the hull (under the crown's curve, the hanging
+    # hair's inside) in the darker tone, with a soft step
+    under = _ss(-0.05, -0.45, nh[:, 1]) * 0.85 + 0.15 * _ss(0.1, -0.6, N[:, 1])
+    lum = BASE - (BASE - UNDER) * np.clip(under, 0, 1)
     lum = np.where(ring_v, RING, lum)
     m.colors = np.ones((m.num_vertices, 4))
     m.colors[:, :3] = lum[:, None]

@@ -44,16 +44,16 @@ def _bump(t, peak):
 
 # ----------------------------------------------------------------------------- 2D design (mm)
 if FEMALE:
-    EYE = dict(u0=-20.5, u1=24.0, v_in=-2.0, v_out=4.5, h_up=19.5, p_up=0.42, h_dn=-15.5, p_dn=0.5,
-               iris_c=(1.2, 1.0), iris_r=(13.6, 18.2), pupil_c=(1.2, 2.2), pupil_r=(5.2, 8.0),
-               lash=(1.0, 3.0, 4.4), flick=(8.0, 5.5), spikes=True, crease=(6.0, 0.75), lower=1.1,
-               shine=[((7.0, 8.2), (4.3, 5.6), 18.0), ((-6.0, -9.8), (2.3, 2.0), 0.0), ((9.0, -4.4), (1.2, 1.2), 0.0)])
-    BROW = dict(u=(-19.5, 29.0), v=(27.5, 33.0, 29.0), th=(1.9, 0.55), peak=0.48)
+    EYE = dict(u0=-20.5, u1=24.0, v_in=-2.0, v_out=4.8, h_up=21.0, p_up=0.42, h_dn=-16.6, p_dn=0.5,
+               iris_c=(1.2, 1.0), iris_r=(13.6, 19.6), pupil_c=(1.2, 2.4), pupil_r=(5.2, 8.6),
+               lash=(1.3, 3.7, 5.4), flick=(9.5, 6.6), spikes=True, crease=(6.2, 0.75), lower=1.15,
+               shine=[((7.0, 8.8), (4.3, 5.9), 18.0), ((-6.0, -10.6), (2.3, 2.1), 0.0), ((9.0, -4.8), (1.2, 1.2), 0.0)])
+    BROW = dict(u=(-19.5, 29.0), v=(28.5, 34.0, 30.0), th=(1.9, 0.55), peak=0.48)
     MOUTH = dict(y=1.562, w=5.2, curve=0.6, th=1.0)
 else:
     EYE = dict(u0=-20.5, u1=23.5, v_in=-1.0, v_out=4.0, h_up=15.0, p_up=0.4, h_dn=-12.0, p_dn=0.56,
                iris_c=(1.0, 1.2), iris_r=(12.0, 15.0), pupil_c=(1.0, 2.0), pupil_r=(4.6, 7.0),
-               lash=(1.1, 2.8, 3.6), flick=(4.6, 2.2), spikes=False, crease=(5.0, 0.7), lower=0.9,
+               lash=(1.4, 3.3, 4.6), flick=(6.2, 3.4), spikes=False, crease=(5.0, 0.7), lower=0.95,
                shine=[((5.8, 6.4), (3.6, 4.4), 18.0), ((-5.0, -7.6), (1.9, 1.6), 0.0)])
     BROW = dict(u=(-20.0, 29.5), v=(22.0, 26.0, 24.0), th=(3.4, 1.1), peak=0.42)
     MOUTH = dict(y=1.557, w=6.4, curve=0.15, th=1.05)
@@ -240,17 +240,17 @@ def paint_iris():
     x, y = (u - cx) / rx, (v - cy) / ry
     r = np.sqrt(x * x + y * y)
     ang = np.arctan2(y, x)
-    g = 0.34 + 0.58 * ss(0.55, -0.85, y)  # dark top -> light bottom
-    g += 0.07 * np.exp(-((r - 0.6) / 0.09) ** 2)  # a lighter ring
+    g = 0.2 + 0.8 * ss(0.6, -0.8, y) ** 0.85  # dark top -> light bottom
+    g += 0.08 * np.exp(-((r - 0.6) / 0.09) ** 2)  # a lighter ring
     g *= 1 + 0.06 * np.sin(ang * 22) * ss(0.25, 0.85, r) * (1 - ss(0.9, 1.0, r))  # faint radial streaks
-    g *= 1 - 0.5 * ss(0.8, 1.0, r)  # darker rim
+    g *= 1 - 0.62 * ss(0.78, 1.0, r)  # darker rim
     # the pupil: a darker vertical oval
     pd = sd_ellipse(u, v, E["pupil_c"], E["pupil_r"])
     pc = cover(pd, c.px / MM)
-    g = g * (1 - pc) + 0.13 * pc
+    g = g * (1 - pc) + 0.08 * pc
     # the upper lid's shadow across the top of the iris
     below = lid_up(u) - v
-    g *= 1 - 0.55 * (1 - ss(0.0, 5.0, below))
+    g *= 1 - 0.6 * (1 - ss(0.0, 5.5, below))
     # a soft bright crescent low in the iris
     g += 0.1 * np.exp(-((y + 0.62) / 0.16) ** 2) * (1 - ss(0.75, 0.95, np.abs(x))) * (1 - pc)
     return np.clip(np.repeat(g[..., None], 3, axis=-1), 0, 1)
@@ -270,7 +270,7 @@ def lash_curves():
     the lashes, the crease and the lower lash hint: [(points, half, color), ...]."""
     E = EYE
     out = []
-    lash_c = (0.1, 0.06, 0.07)
+    lash_c = (0.055, 0.032, 0.042)
     # upper lash line: its lower edge sits ~0.6 mm under the lid line, thickest past the middle,
     # then the flick out and up beyond the outer corner
     n = 40
@@ -284,8 +284,8 @@ def lash_curves():
     fu, fv = E["flick"]
     k = np.linspace(0, 1, 10)[1:]
     end = pts[-1]
-    fl = np.column_stack([end[0] + fu * k, end[1] + fv * k ** 1.35 + 0.3 * k])
-    fth = th[-1] * (1 - k) ** 0.85 + 0.05
+    fl = np.column_stack([end[0] + fu * k, end[1] + fv * k ** 1.25 + 0.3 * k])
+    fth = th[-1] * 1.05 * (1 - k) ** 0.75 + 0.05
     pts = np.vstack([pts, fl])
     half = np.concatenate([0.5 * th, 0.5 * fth])
     out.append((pts, half, lash_c))
@@ -324,7 +324,7 @@ def paint_lashes():
     u, v = c.mm()
     px = c.px / MM
     col = np.zeros(u.shape + (3,))
-    col[:] = (0.1, 0.06, 0.07)
+    col[:] = (0.055, 0.032, 0.042)
     alpha = np.zeros(u.shape)
     # paint back to front: crease and lower line first, the lash line on top
     for pts, half, rgb in reversed(lash_curves()):
@@ -423,10 +423,21 @@ def skin_base_color(size=SKIN_TEX):
         r2 = ((x - sx * (H.EYE_X + 0.005)) / 0.0145) ** 2 + ((y - (H.EYE_Y - 0.0195)) / 0.0068) ** 2
         k = np.clip(1 - r2, 0, 1) ** 1.6 * front * amt
         col = col * (1 - k[..., None]) + blush_c * k[..., None]
+    # the nose: a small angled tick on its right side (male), a small soft curve under the tip
+    # (female), as Genshin draws them
     ty, tz = H.P["nose_tip"]
-    r2 = (x / 0.0042) ** 2 + ((y - (ty - 0.0042)) / 0.0024) ** 2
-    k = np.clip(1 - r2, 0, 1) ** 1.5 * front * 0.45
-    col = col * (1 - k[..., None]) + np.array([0.93, 0.8, 0.77]) * k[..., None]
+    px = 0.12 * MM
+    if FEMALE:
+        pts = np.array([[-1.7, -1.5], [-0.5, -2.05], [0.8, -1.75]]) * MM + np.array([0.0, ty])
+        d = sd_stroke(x, y, pts, np.array([0.18, 0.34, 0.16]) * MM)
+        k = np.clip(0.5 - d / (3 * px), 0, 1) * front * 0.55
+        tick_c = np.array([0.82, 0.6, 0.58])
+    else:
+        pts = np.array([[-1.0, 1.9], [-2.1, 0.2], [-2.9, -1.1]]) * MM + np.array([0.0, ty])
+        d = sd_stroke(x, y, pts, np.array([0.12, 0.36, 0.2]) * MM)
+        k = np.clip(0.5 - d / (2 * px), 0, 1) * front * 0.8
+        tick_c = np.array([0.66, 0.45, 0.43])
+    col = col * (1 - k[..., None]) + tick_c * k[..., None]
     return np.clip(col, 0, 1)
 
 
@@ -465,39 +476,65 @@ def neck_shadow(size, coarse=256, elev=40.0):
     return ss(0.42, 0.58, m)
 
 
+# when parts of the face go dark (fraction of pi) for light from the left: the center line (nose,
+# between the eyes) stays lit until ~112 deg, the eye sockets until ~110 deg, the far cheek's edge
+# goes dark at ~22 deg; light from 30-60 deg leaves only a sliver on the far cheek
+T_CENTER, T_EDGE, T_SOCKET = 0.62, 0.12, 0.61
+
+
+def t_of_s(s, p, q=1.6):
+    """Threshold of a point at normalized side position s (-1 = the right edge of the face or the
+    right side of the head, 0 = the center line, +1 = the left edge, -2 / +2 = straight behind
+    through the right / left). p > 1 keeps more of the right half lit (the boundary curves out);
+    q > 1 makes the left half darken sooner once the light is behind (a lit crescent on the left
+    cheek instead of half the face)."""
+    s = np.asarray(s, float)
+    right = T_CENTER - (T_CENTER - T_EDGE) * np.clip(-s, 0, 1) ** p
+    behind = T_EDGE * np.clip(2 + s, 0, 1)
+    left = T_CENTER + (1 - T_CENTER) * np.clip(s, 0, 1) ** q
+    return np.where(s >= 0, left, np.where(s >= -1, right, behind))
+
+
 def face_threshold(size=MAP_TEX):
     """Face shadow threshold map (Genshin's technique), in Head_Skin's UV space, authored for light
     from the character's LEFT (+X). Texel value t in [0, 1]: the texel is lit while the light's
     horizontal angle phi (head space, from the front +Z (0) through the left side to straight behind
     (pi)) is below t * pi. The client mirrors u (1 - u) for light from the right.
 
-    Base: on the face, a round model per height (t = 1/2 + asin(x / w(y)) / pi, w = the face's half
-    width), so the shadow enters at the right cheek and sweeps across in clean curves that follow
-    the cheek; elsewhere (sides, back of the head, neck) the azimuth of the proxy's normal
-    (t = 1/2 + a / pi, clamped: the right half of the back reads 0, the left half 1). Art direction
-    on top: a small shadow beside the nose at mid angles, and the neck under the jaw always in
-    shadow (an anime chin shadow with a crisp edge along the jaw)."""
+    As the light swings from the front to the side, the far (right) cheek darkens first along a
+    curved boundary that hugs the cheekbone and the jaw (the normalized position s = x / w(y), w =
+    the face's half width, with a per-height bias: the eye band and the forehead stay lit longer,
+    the cheekbone darkens a little sooner); the eye sockets and the center of the face stay lit
+    until the light is well past 90 deg; a small shadow beside the nose appears at mid angles.
+    Off the face (sides, back of the head) s comes from the azimuth of a smooth proxy's normal. The
+    neck under the jaw stays in shadow (an anime chin shadow with a crisp edge along the jaw)."""
     q, n = skin_surface(size)
     x, y, z = q[..., 0], q[..., 1], q[..., 2]
-    px = 1.0 / size
-    a_n = np.arctan2(n[..., 0], n[..., 2])
-    t_n = np.clip(0.5 + a_n / np.pi, 0, 1)
-    t_n = _blur(t_n, 0.012 * size)
+    a_n = _blur(np.arctan2(n[..., 0], n[..., 2]), 0.01 * size)
+    t_n = t_of_s(np.clip(a_n / (np.pi / 2), -2, 2), 1.6)
     w = np.maximum(H.face_half_width(np.clip(y, H.CHIN_Y, 1.72)) * 1.04, 0.012)
-    t_f = 0.5 + np.arcsin(np.clip(x / w, -1, 1)) / np.pi
+    h = (y - H.CHIN_Y) / (H.EYE_Y - H.CHIN_Y)  # 0 at the chin, 1 at the eye line
+    # boundary shape by height: jaw 1.6, cheekbone 1.25 (darkens sooner), eye band 2.4, forehead 2.0
+    p = np.interp(h, [0.0, 0.3, 0.55, 0.85, 1.05, 1.35, 2.0], [1.6, 1.5, 1.25, 1.7, 2.4, 2.0, 2.0])
+    # once the light is behind, the lit part shrinks to a crescent that hugs the left cheek
+    qf = np.interp(h, [0.0, 0.3, 0.55, 0.85, 1.05, 1.35, 2.0], [1.8, 2.0, 2.3, 1.8, 1.35, 1.6, 1.6])
+    t_f = t_of_s(np.clip(x / w, -1, 1), p, qf)
     on_face = ss(0.05, 0.4, n[..., 2]) * ss(H.CHIN_Y - 0.002, H.CHIN_Y + 0.012, y) * (1 - ss(1.72, 1.76, y))
     t = t_n * (1 - on_face) + t_f * on_face
-    t = _blur(t, 0.004 * size)
-    # beside the nose (its right side, light from the left): a small wedge that appears at mid
-    # angles and grows away from the nose
+    # the eye sockets stay lit until the light is well past 90 deg
+    for sx in (1, -1):
+        r = np.sqrt(((x - sx * H.EYE_X) / 0.031) ** 2 + ((y - H.EYE_Y - 0.002) / 0.025) ** 2)
+        m = ss(1.0, 0.5, r) * ss(0.03, 0.05, z)
+        t = t + (np.maximum(t, T_SOCKET) - t) * m
+    t = _blur(t, 0.003 * size)
+    # beside the nose (its right side, light from the left): a small triangle that appears at mid
+    # angles (~43 deg) and grows away from the nose
     ty, tz = H.P["nose_tip"]
-    pts = np.array([[-0.6, ty / MM + 1.6], [-3.5, ty / MM - 1.2], [-7.6, ty / MM - 3.3]]) * MM
-    d = sd_stroke(x, y, pts, np.array([1.3, 1.6, 0.4]) * MM)
+    pts = np.array([[-0.8, ty / MM + 1.4], [-3.4, ty / MM - 1.0], [-7.0, ty / MM - 3.0]]) * MM
+    d = sd_stroke(x, y, pts, np.array([1.2, 1.5, 0.3]) * MM)
     inside = cover(d, 0.35 * MM) * ss(0.03, 0.05, z)
-    wedge = 0.27 + 0.16 * ss(0.5, 7.5, -x / MM)
+    wedge = 0.24 + 0.14 * ss(0.6, 7.0, -x / MM)
     t = np.minimum(t, t * (1 - inside) + wedge * inside)
-    # the neck under the jaw (and under the back of the skull) stays in shadow, with a crisp edge
-    # along the jaw line (the anime chin shadow)
     t = t * (1 - neck_shadow(size))
     return np.clip(t, 0, 1)
 
