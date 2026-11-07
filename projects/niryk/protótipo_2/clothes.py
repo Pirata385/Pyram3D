@@ -204,6 +204,11 @@ def _cape_edge(p):
     return out
 
 
+# the capelet's neck hole (a capsule: a, b, radius), a little forward of the neck's axis so the
+# capelet never reaches the front of the stand collar under the chin
+NECK_HOLE = ((0, 1.4, -0.021), (0, 1.62, -0.011), 0.074)
+
+
 def collar():
     base = sdf.smooth_union(B.torso(), B.shoulders(), k=0.05).smooth_union(_arms_upper(), 0.035)
     cape = Offset(base, 0.018, t_max=0.03)
@@ -217,7 +222,7 @@ def collar():
     for s in (1, -1):
         cape = cape.smooth_subtract(sdf.plane(arm_point(0.075, s), -arm_dir(s), extent=1.0)
                                     .intersect(sdf.capsule(arm_point(0.05, s), arm_point(0.6, s), 0.12)), 0.01)
-    neck_hole = sdf.capsule((0, 1.4, -0.03), (0, 1.62, -0.02), 0.068 if FEMALE else 0.074)
+    neck_hole = sdf.capsule(NECK_HOLE[0], NECK_HOLE[1], NECK_HOLE[2])  # the stand collar fills it
     cape = cape.smooth_subtract(neck_hole, 0.012)
     if HARPIN:
         cape = cape.smooth_subtract(wing_slits(), 0.008)
@@ -231,13 +236,21 @@ def collar():
     trim = grow.intersect(sdf.custom(band, np.array([-0.4, 1.2, -0.3]), np.array([0.4, 1.6, 0.3])))
     trim = trim.paint(color=(1, 1, 1), material=slot("Cloth_B"))
     # stand collar around the neck, higher at the back than under the chin: the skin of the neck
-    # (and the slope of the shoulders) grown by 10.5 mm (room for the meshing error: the fine neck
-    # skin must never poke through), cut to a band. It follows the skin exactly
+    # (and the slope of the shoulders) grown by 7.5 mm (it sits under the tunic and the capelet at
+    # its foot), 10.5 mm high in front under the chin, where the fine neck skin poked through the
+    # coarser collar mesh; cut to a band. It follows the skin exactly
     # (a tube of its own sat partly inside the neck base: brown smears and skin poking through);
     # its inside and the skin under it are dropped at build time, its foot hides under the capelet.
-    g = 0.86 if FEMALE else 1.0
     skin = sdf.smooth_union(B.torso(), B.shoulders(), k=0.05).smooth_union(B.neck(), 0.04)
-    stand = Offset(skin, 0.0105, t_max=0.013).intersect(sdf.capsule((0, 1.3, -0.028), (0, 1.75, -0.022), 0.09 * g))
+    y0, y1 = (1.505, 1.525) if FEMALE else (1.52, 1.54)
+
+    def stand_t(p):
+        p = np.atleast_2d(p)
+        return 0.0075 + 0.003 * _ss(y0, y1, p[:, 1]) * _ss(-0.01, 0.02, p[:, 2])
+    # it fills the capelet's neck hole (2 mm inside its wall): the capelet's inner wall is a clean
+    # edge around it instead of grazing its surface
+    stand = Offset(skin, stand_t, t_max=0.013).smooth_intersect(
+        sdf.capsule(NECK_HOLE[0], NECK_HOLE[1], NECK_HOLE[2] - 0.002), 0.003)
     stand = _cut(stand, (0, 1.43, 0), (0, -1, 0), 0.004)
     stand = _cut(stand, (0, 1.548 if FEMALE else 1.553, 0.0), (0, 1.0, 0.62), 0.006)  # back higher
     stand = stand.paint(color=(1, 1, 1), material=slot("Cloth_B"))
