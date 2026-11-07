@@ -423,13 +423,11 @@ def spikes(azs, el0, el1, lift, w=0.022, th=0.004, bend=0.0):
 
 def style_espetado():
     """Spiky: pointed bangs, locks standing up and back from the crown, short spiky sides and nape."""
-    L = [cap()] + bangs() + sides("short")
-    L += spikes((-150, -120, -90, -60, -30, 0, 30, 60, 90, 120, 150, 180), 64, 26, 0.05, w=0.026)
-    L += spikes((-165, -135, -105, 105, 135, 165), 40, -6, 0.04, w=0.024)
-    L += spikes((-45, -15, 15, 45), 78, 60, 0.055, w=0.024)
-    L += spikes((-160, 160, 180, -140, 140), 8, -40, 0.03, w=0.022)
-    if FEMALE:  # a longer, softer pixie: locks along the jaw
-        L += sides("jaw")
+    L = [cap()] + bangs() + sides("jaw" if FEMALE else "short")  # female: a longer, softer pixie
+    L += spikes((-160, -120, -80, -40, 0, 40, 80, 120, 160), 64, 26, 0.05, w=0.03)
+    L += spikes((-150, -105, 105, 150), 40, -6, 0.04, w=0.028)
+    L += spikes((-30, 0, 30), 78, 60, 0.055, w=0.027)
+    L += spikes((-158, 158, 180, -136, 136), 8, -40, 0.03, w=0.024)
     return L
 
 

@@ -45,9 +45,9 @@ Saídas:
    com limite de aresta por região e **normais analíticas** do SDF (gravadas no glTF). A cabeça
    e as duas mãos são malhadas à parte numa grade fina (2,8 mm), o resto do corpo numa grade
    grossa (5,2 mm); os cortes entre as partes ficam escondidos sob a túnica e as braçadeiras.
-3. **Nada escondido gasta triângulos**: a pele sob a roupa e sob o cabelo, as faces internas das
-   roupas (tampas de corte dentro do corpo, a túnica sob o cinto, a calça sob as botas e no alto
-   da saia) e o interior do cabelo são apagados antes e depois da decimação.
+3. **Nada escondido gasta triângulos**: a pele sob a roupa e sob a calota de todos os penteados e as
+   faces internas das roupas (tampas de corte dentro do corpo, a túnica sob o cinto, a calça sob as
+   botas e no alto da saia) são apagadas antes e depois da decimação.
 4. **Roupas**: cascas lisas (`shapes.Offset`) das formas do corpo, cortadas com bainhas
    arredondadas (a manga curta tem uma bainha enrolada); a saia da túnica é um tubo em A largo o
    bastante para as coxas não aparecerem através dela.
@@ -69,14 +69,14 @@ Saídas:
    externo (cílios no feminino), prega da pálpebra, sombra da pálpebra no branco, sugestão de cílio
    inferior; sobrancelha fina, boca mínima, rubor na pele. O olho direito espelha o esquerdo.
    **Sombra do rosto por mapa** (técnica do Genshin): veja "Contrato do rosto" abaixo.
-   **Cabelo** (`hair.py`): calota lisa de volume + mechas finas e pontudas em camadas, cada uma um
+8. **Cabelo** (`hair.py`): calota lisa de volume + mechas finas e pontudas em camadas, cada uma um
    varrido de seção em lente (larga e fina, bordas curvadas para a cabeça) numa gaiola grossa
    suavizada por um passo de Catmull-Clark; normais da superfície lisa, puxadas em parte para um casco
    em volta da cabeça (faixas de toon limpas). Franja emoldurando o rosto (sobre as íris as pontas
    param acima da linha de cílios), mechas laterais na frente das orelhas, massa lisa atrás. Dois tons
    nas cores de vértice (base 0,8; lado de baixo / de dentro 0,6) e o anel de anjo (1,0), uma faixa em
    zigue-zague cortada na malha para ter borda nítida.
-8. **Pesos** (`rig.py`): funções suaves da posição (pertinência ao braço/perna/cabeça e
+9. **Pesos** (`rig.py`): funções suaves da posição (pertinência ao braço/perna/cabeça e
    transições em smoothstep nas juntas). Corpo e roupa usam a mesma função; nada é rígido nas
    juntas. As mãos nunca recebem peso das coxas; cada lado da saia segue a sua coxa e o meio é
    dividido entre as duas. Cabelo, olhos e sobrancelhas seguem o osso `Head`.
